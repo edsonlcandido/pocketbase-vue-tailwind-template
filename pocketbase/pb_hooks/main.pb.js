@@ -28,4 +28,4 @@ routerAdd("GET", "/*", (c) => {
 
   // Para todas as outras rotas, servir o index.html da landing page
   return c.next()
-}, $apis.requireGuestOnly())
+})
