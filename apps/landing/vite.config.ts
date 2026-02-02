@@ -24,6 +24,11 @@ export default defineConfig({
         target: 'http://localhost:8090',
         changeOrigin: true,
         secure: false
+      },
+      '/app':{
+        target: 'http://localhost:5174',
+        changeOrigin: true,
+        secure: false
       }
     }
   }
