@@ -15,6 +15,27 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = newModel
   })
 
+  // Verifica se o token ainda é válido no servidor
+  async function verifyAuth(): Promise<boolean> {
+    if (!pb.authStore.isValid || !pb.authStore.model) {
+      return false
+    }
+
+    try {
+      // Tenta atualizar o token - isso falhará se o usuário não existir mais
+      await pb.collection('users').authRefresh()
+      user.value = pb.authStore.model
+      token.value = pb.authStore.token
+      return true
+    } catch (error) {
+      // Token inválido ou usuário não existe mais - limpa a sessão
+      pb.authStore.clear()
+      user.value = null
+      token.value = ''
+      return false
+    }
+  }
+
   async function login(email: string, password: string) {
     try {
       const authData = await pb.collection('users').authWithPassword(email, password)
@@ -60,6 +81,7 @@ export const useAuthStore = defineStore('auth', () => {
     user,
     token,
     isLoggedIn,
+    verifyAuth,
     login,
     logout,
     register,

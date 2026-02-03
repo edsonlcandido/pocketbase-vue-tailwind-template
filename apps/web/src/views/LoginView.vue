@@ -127,7 +127,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 
@@ -178,7 +178,9 @@ async function handleSubmit() {
     }
 
     if (result.success) {
-      router.push('/dashboard')
+      // Aguarda o próximo tick do Vue para garantir que o estado foi atualizado
+      await nextTick()
+      await router.push('/dashboard')
     } else {
       error.value = result.error || 'Ocorreu um erro'
     }

@@ -16,17 +16,17 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:8090',
+        target: 'https://solid-palm-tree-j4w7q79wv5xfpwxx-8090.app.github.dev/',
         changeOrigin: true,
         secure: false
       },
       '/_': {
-        target: 'http://localhost:8090',
+        target: 'https://solid-palm-tree-j4w7q79wv5xfpwxx-8090.app.github.dev/',
         changeOrigin: true,
         secure: false
       },
       '/app':{
-        target: 'http://localhost:5174',
+        target: 'https://solid-palm-tree-j4w7q79wv5xfpwxx-5174.app.github.dev/',
         changeOrigin: true,
         secure: false
       }

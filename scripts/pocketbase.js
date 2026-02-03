@@ -101,7 +101,7 @@ async function startPocketBase() {
   
   console.log('🚀 Iniciando PocketBase...')
   
-  const pb = spawn(pbBinary, ['serve', '--http=127.0.0.1:8090'], {
+  const pb = spawn(pbBinary, ['serve', '--http=localhost:8090'], {
     cwd: pbDir,
     stdio: 'inherit',
   })

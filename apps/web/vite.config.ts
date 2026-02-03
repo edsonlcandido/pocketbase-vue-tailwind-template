@@ -8,15 +8,11 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:8090',
+        target: 'https://solid-palm-tree-j4w7q79wv5xfpwxx-8090.app.github.dev/',
         changeOrigin: true,
       },
       '/_': {
-        target: 'http://127.0.0.1:8090',
-        changeOrigin: true,
-      },
-      '/': {
-        target: 'http://127.0.0.1:5173',
+        target: 'https://solid-palm-tree-j4w7q79wv5xfpwxx-8090.app.github.dev/',
         changeOrigin: true,
       }
     },
