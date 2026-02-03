@@ -7,14 +7,14 @@ WORKDIR /app
 COPY package*.json ./
 COPY apps/landing/package*.json ./apps/landing/
 
-# Instalar dependências
-RUN npm ci
+# Instalar dependências (usando npm install pois package-lock.json pode não existir)
+RUN npm install --workspaces=false || npm install
 
 # Copiar código fonte da landing
 COPY apps/landing ./apps/landing
 
 # Build da landing page
-RUN cd apps/landing && npm run build
+RUN cd apps/landing && npm install && npm run build
 
 # Estágio 2: Build do Web App
 FROM node:20-alpine AS web-builder
@@ -26,13 +26,13 @@ COPY package*.json ./
 COPY apps/web/package*.json ./apps/web/
 
 # Instalar dependências
-RUN npm ci
+RUN npm install --workspaces=false || npm install
 
 # Copiar código fonte do web app
 COPY apps/web ./apps/web
 
 # Build do web app
-RUN cd apps/web && npm run build
+RUN cd apps/web && npm install && npm run build
 
 # Estágio 3: Imagem final com PocketBase
 FROM alpine:latest
