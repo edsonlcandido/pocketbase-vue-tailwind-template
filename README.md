@@ -90,35 +90,56 @@ Isso instalará as dependências do root e de todos os workspaces (landing e web
 
 ### Configuração de Ambiente
 
-O projeto usa variáveis de ambiente para configurar a URL do PocketBase:
+O projeto usa variáveis de ambiente para configurar URLs. Cada app (landing e web) tem seus próprios arquivos:
 
-| Arquivo | Uso |
-|---------|-----|
-| `.env.development` | Ambiente de desenvolvimento local (`npm run dev`) |
-| `.env.production` | Ambiente de produção (`npm run build`) |
-| `.env.local` | Sobrescreve outras configurações (não vai pro git) |
+```
+apps/
+├── landing/
+│   ├── .env.development    # Configuração padrão (localhost)
+│   ├── .env.production     # Configuração de produção
+│   ├── .env.local          # Suas configurações (não vai pro git)
+│   └── .env.example        # Documentação das variáveis
+│
+└── web/
+    ├── .env.development    # Configuração padrão (localhost)
+    ├── .env.production     # Configuração de produção
+    ├── .env.local          # Suas configurações (não vai pro git)
+    └── .env.example        # Documentação das variáveis
+```
+
+| Arquivo | Uso | Git |
+|---------|-----|-----|
+| `.env.development` | Ambiente de dev local (`npm run dev`) | ✅ |
+| `.env.production` | Ambiente de produção (`npm run build`) | ✅ |
+| `.env.local` | Sobrescreve outras configs (pessoal) | ❌ |
 
 #### Desenvolvimento Local (padrão)
 
 Por padrão, o projeto está configurado para desenvolvimento local:
-- PocketBase em `http://localhost:8090`
-- Frontend em `http://localhost:5174`
+- **PocketBase**: `http://localhost:8090`
+- **Landing Page**: `http://localhost:5173`
+- **Web App**: `http://localhost:5174`
 
 Basta rodar `npm run dev` e tudo funcionará.
 
 #### Desenvolvimento em Codespaces/GitPod
 
-Para ambientes remotos, crie um arquivo `apps/web/.env.local`:
+Para ambientes remotos, crie os arquivos `.env.local` em cada app:
 
 ```bash
-# Copie o exemplo
-cp apps/web/.env.local.example apps/web/.env.local
+# Landing Page
+cat > apps/landing/.env.local << EOF
+VITE_POCKETBASE_URL=https://sua-url-8090.app.github.dev/
+VITE_WEBAPP_URL=https://sua-url-5174.app.github.dev/
+EOF
 
-# Edite com sua URL
-echo "VITE_POCKETBASE_URL=https://sua-url-8090.app.github.dev/" > apps/web/.env.local
+# Web App
+cat > apps/web/.env.local << EOF
+VITE_POCKETBASE_URL=https://sua-url-8090.app.github.dev/
+EOF
 ```
 
-> ⚠️ O arquivo `.env.local` é ignorado pelo git, então suas configurações locais não afetam outros desenvolvedores.
+> ⚠️ Os arquivos `.env.local` são ignorados pelo git, então suas configurações locais não afetam outros desenvolvedores.
 
 ### Modo Desenvolvimento Completo
 
