@@ -6,13 +6,15 @@ export default defineConfig({
   plugins: [vue()],
   base: '/app/',
   server: {
+    // Proxy para desenvolvimento local
+    // Redireciona requisições /api e /_ para o PocketBase local
     proxy: {
       '/api': {
-        target: 'https://solid-palm-tree-j4w7q79wv5xfpwxx-8090.app.github.dev/',
+        target: 'http://localhost:8090',
         changeOrigin: true,
       },
       '/_': {
-        target: 'https://solid-palm-tree-j4w7q79wv5xfpwxx-8090.app.github.dev/',
+        target: 'http://localhost:8090',
         changeOrigin: true,
       }
     },

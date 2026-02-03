@@ -88,6 +88,38 @@ Isso instalará as dependências do root e de todos os workspaces (landing e web
 
 ## 🚀 Desenvolvimento
 
+### Configuração de Ambiente
+
+O projeto usa variáveis de ambiente para configurar a URL do PocketBase:
+
+| Arquivo | Uso |
+|---------|-----|
+| `.env.development` | Ambiente de desenvolvimento local (`npm run dev`) |
+| `.env.production` | Ambiente de produção (`npm run build`) |
+| `.env.local` | Sobrescreve outras configurações (não vai pro git) |
+
+#### Desenvolvimento Local (padrão)
+
+Por padrão, o projeto está configurado para desenvolvimento local:
+- PocketBase em `http://localhost:8090`
+- Frontend em `http://localhost:5174`
+
+Basta rodar `npm run dev` e tudo funcionará.
+
+#### Desenvolvimento em Codespaces/GitPod
+
+Para ambientes remotos, crie um arquivo `apps/web/.env.local`:
+
+```bash
+# Copie o exemplo
+cp apps/web/.env.local.example apps/web/.env.local
+
+# Edite com sua URL
+echo "VITE_POCKETBASE_URL=https://sua-url-8090.app.github.dev/" > apps/web/.env.local
+```
+
+> ⚠️ O arquivo `.env.local` é ignorado pelo git, então suas configurações locais não afetam outros desenvolvedores.
+
 ### Modo Desenvolvimento Completo
 
 Execute todos os serviços simultaneamente (PocketBase + Landing + Web App):

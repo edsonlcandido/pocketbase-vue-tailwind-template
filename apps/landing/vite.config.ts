@@ -17,18 +17,15 @@ export default defineConfig({
     proxy: {
       '/api': {
         target: 'https://solid-palm-tree-j4w7q79wv5xfpwxx-8090.app.github.dev/',
-        changeOrigin: true,
-        secure: false
+        changeOrigin: true
       },
       '/_': {
         target: 'https://solid-palm-tree-j4w7q79wv5xfpwxx-8090.app.github.dev/',
-        changeOrigin: true,
-        secure: false
+        changeOrigin: true
       },
       '/app':{
         target: 'https://solid-palm-tree-j4w7q79wv5xfpwxx-5174.app.github.dev/',
-        changeOrigin: true,
-        secure: false
+        changeOrigin: true
       }
     }
   }
