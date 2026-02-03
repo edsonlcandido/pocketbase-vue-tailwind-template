@@ -2,7 +2,6 @@
 node_modules
 npm-debug.log
 yarn-error.log
-package-lock.json
 yarn.lock
 .pnpm-debug.log
 
@@ -24,14 +23,14 @@ build
 *~
 .DS_Store
 
-# PocketBase data
-pocketbase/pb_data/data.db*
-pocketbase/pb_data/logs.db*
-pocketbase/pb_data/backups/
-pocketbase/pb_data/storage/
-
-# Manter types gerados
+# PocketBase
+pocketbase/pocketbase
+pocketbase/pocketbase.exe
+pocketbase/pb_data/*
+!pocketbase/pb_data/.gitkeep
 !pocketbase/pb_data/types.d.ts
+pocketbase/pb_public/*
+!pocketbase/pb_public/.gitkeep
 
 # Logs
 logs
