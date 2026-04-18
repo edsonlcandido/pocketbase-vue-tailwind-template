@@ -50,6 +50,39 @@ routerAdd("POST", "/api/admin",
 )
 ```
 
+### 🔴 Migrations - Campos de Timestamp OBRIGATÓRIOS
+
+❌ **ERRADO** - Criar collection sem `created` e `updated`:
+```javascript
+collection.createField(new Field({
+  name: "name",
+  type: "text",
+}))
+// ❌ PocketBase NÃO cria automaticamente via migrations!
+```
+
+✅ **CORRETO** - Sempre adicionar manualmente:
+```javascript
+collection.createField(new Field({
+  name: "created",
+  type: "autodate",
+  onCreate: true,
+}));
+
+collection.createField(new Field({
+  name: "updated",
+  type: "autodate",
+  onCreate: true,
+  onUpdate: true,
+}));
+
+collection.createField(new Field({
+  name: "name",
+  type: "text",
+}))
+```
+
+**⚠️ IMPORTANTE**: A UI do PocketBase cria esses campos automaticamente, mas **via migrations (JSVM) você DEVE criá-los manualmente**, senão a collection fica sem timestamps.
 
 
 ## 📌 Padrões de Código Esperados
@@ -151,3 +184,4 @@ Acesse no código com: `import.meta.env.VITE_POCKETBASE_URL`
 | Usuário deletado permanece logado | Não chama `authRefresh()` | Implementar no router guard |
 | Login não redireciona | Sem `await nextTick()` | Adicionar entre auth e push |
 | `npm ci` falha no Docker | `package-lock.json` no gitignore | Usar `npm install` ou desbloquear arquivo |
+| Migration sem `created`/`updated` | Criar collections sem esses campos | Sempre adicionar manualmente em migrations (UI faz automático, JSVM não) |
