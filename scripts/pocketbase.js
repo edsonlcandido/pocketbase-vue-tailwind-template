@@ -94,14 +94,20 @@ async function downloadAndExtractPocketBase() {
 }
 
 async function startPocketBase() {
-  // Verificar se o PocketBase existe
-  if (!existsSync(pbBinary)) {
+  if (existsSync(pbBinary)) {
+    console.log('✅ PocketBase já instalado')
+  } else {
     await downloadAndExtractPocketBase()
   }
-  
-  console.log('🚀 Iniciando PocketBase...')
-  
-  const pb = spawn(pbBinary, ['serve', '--http=localhost:8090'], {
+
+  // Bind em 0.0.0.0 por padrão pra funcionar em VSCode Server / Codespaces /
+  // qualquer ambiente atrás de reverse proxy (Easypanel, Traefik, Tunnel...).
+  // Sobrescrever via PB_HTTP se quiser loopback: PB_HTTP=127.0.0.1:8090 npm run dev:pb
+  const http = process.env.PB_HTTP || '0.0.0.0:8090'
+
+  console.log(`🚀 Iniciando PocketBase em ${http}...`)
+
+  const pb = spawn(pbBinary, ['serve', `--http=${http}`], {
     cwd: pbDir,
     stdio: 'inherit',
   })
