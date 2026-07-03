@@ -75,6 +75,8 @@ Abra qualquer `SKILL.md` em qualquer editor. O conteúdo é referência útil in
 | `domain-storage-files` | Avatar, anexos múltiplos, XHR com progress, signed URLs, S3-compatible |
 | `domain-email-hooks` | Templates HTML, Resend/SMTP, fila com retry, bounces, cron de digest |
 | `domain-rbac` | Roles no user, matriz de permissions, diretiva `v-can`, multi-team, audit log |
+| `domain-admin-panel` | Bootstrap do 1º super admin, UI de gerenciamento de usuários, convite por email, reset de senha forçado, impersonar |
+| `domain-landing-pages` | Receitas de landing por segmento (SaaS, local, portfólio, evento…), componentes prontos, integração com PB, estratégia multi-cliente |
 
 ## Workflow sugerido
 
