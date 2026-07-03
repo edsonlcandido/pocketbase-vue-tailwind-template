@@ -20,7 +20,7 @@
         "copy:landing": "node scripts/copy-landing.js",
         "copy:app": "node scripts/copy-app.js",
         "build": "npm run build:landing && npm run copy:landing && npm run build:web && npm run copy:app",
-        "preview": "cd pocketbase && ./pocketbase serve"
+        "preview": "cd pocketbase && ./pocketbase serve --http=0.0.0.0:8090"
     },
     "keywords": [
         "pocketbase",

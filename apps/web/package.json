@@ -4,9 +4,9 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --config vite.local.config.ts",
     "build": "vue-tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview --config vite.local.config.ts"
   },
   "dependencies": {
     "@heroicons/vue": "^2.2.0",
