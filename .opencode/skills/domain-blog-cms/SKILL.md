@@ -261,78 +261,137 @@ onRecordBeforeCreateRequest((e) => {
 }, $app)
 ```
 
-## 3. Stores Pinia
+## 3. Stores Pinia (via service layer — Padrão 1)
 
-### `apps/web/src/stores/posts.ts`
+### Service (camada que fala com pb)
 
 ```ts
-import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
-import pb from '@/services/pocketbase'
+// apps/web/src/features/blog/posts/services/posts.service.ts
+import pb from '@/shared/services/pocketbase'
+import type { PostsRecord } from '@pb-types'
 
-export interface Post {
-  id: string
-  title: string
-  slug: string
-  excerpt: string
-  content: string
-  status: 'draft' | 'published' | 'archived'
-  published_at: string
-  author: string
-  category: string
-  tags: string[]
-  reading_time: number
-  views: number
-  cover_image?: string
-  expand?: { author?: any; category?: any; tags?: any[] }
+export interface PostFilters {
+  page?: number
+  perPage?: number
+  tag?: string
+  category?: string
 }
 
-export const usePostsStore = defineStore('posts', () => {
-  const items = ref<Post[]>([])
-  const current = ref<Post | null>(null)
-  const loading = ref(false)
+export const postsService = {
+  // CRUD — Padrão 1 + 2 (thin wrapper)
+  async listPublished(filters: PostFilters = {}) {
+    const filter: string[] = ['status = "published"']
+    if (filters.tag)      filter.push(`tags ?~ "${filters.tag}"`)
+    if (filters.category) filter.push(`category = "${filters.category}"`)
 
-  async function fetchPublished(params: { page?: number; perPage?: number; tag?: string; category?: string } = {}) {
-    loading.value = true
-    try {
-      const filter: string[] = [`status = "published"`]
-      if (params.tag)      filter.push(`tags ?~ "${params.tag}"`)
-      if (params.category) filter.push(`category = "${params.category}"`)
-
-      const res = await pb.collection('posts').getList<Post>(params.page ?? 1, params.perPage ?? 12, {
+    return pb.collection('posts').getList<PostsRecord>(
+      filters.page ?? 1,
+      filters.perPage ?? 12,
+      {
         filter: filter.join(' && '),
         sort: '-published_at',
         expand: 'author,category,tags',
-      })
+      },
+    )
+  },
+
+  async getBySlug(slug: string) {
+    return pb.collection('posts').getFirstListItem<PostsRecord>(
+      `slug = "${slug}" && status = "published"`,
+      { expand: 'author,category,tags' },
+    )
+  },
+
+  async create(data: Partial<PostsRecord>) {
+    return pb.collection('posts').create<PostsRecord>(data)
+  },
+
+  async update(id: string, data: Partial<PostsRecord>) {
+    return pb.collection('posts').update<PostsRecord>(id, data)
+  },
+
+  async delete(id: string) {
+    return pb.collection('posts').delete(id)
+  },
+
+  // Lógica avançada — Padrão 2 (endpoint custom)
+  async incrementView(postId: string) {
+    return pb.send(`/api/posts/${postId}/view`, { method: 'POST' })
+  },
+}
+```
+
+### Store (consome o service, NUNCA pb direto)
+
+```ts
+// apps/web/src/features/blog/posts/stores/posts.store.ts
+import { defineStore } from 'pinia'
+import { ref } from 'vue'
+import { postsService, type PostFilters } from '../services/posts.service'
+import type { PostsRecord } from '@pb-types'
+
+export const usePostsStore = defineStore('posts', () => {
+  const items = ref<PostsRecord[]>([])
+  const current = ref<PostsRecord | null>(null)
+  const loading = ref(false)
+  const error = ref<string | null>(null)
+
+  async function fetchPublished(filters: PostFilters = {}) {
+    loading.value = true
+    error.value = null
+    try {
+      const res = await postsService.listPublished(filters)
       items.value = res.items
       return res
+    } catch (e: unknown) {
+      error.value = e instanceof Error ? e.message : 'Falha ao buscar posts'
+      throw e
     } finally {
       loading.value = false
     }
   }
 
   async function fetchBySlug(slug: string) {
-    const rec = await pb.collection('posts').getFirstListItem<Post>(`slug = "${slug}" && status = "published"`, {
-      expand: 'author,category,tags',
-    })
-    current.value = rec
-    // incrementa view (rota custom do hook)
-    pb.send('/api/posts/' + rec.id + '/view', { method: 'POST' }).catch(() => {})
-    return rec
+    loading.value = true
+    try {
+      const rec = await postsService.getBySlug(slug)
+      current.value = rec
+      // incrementa view (rota custom do hook) — fire-and-forget
+      postsService.incrementView(rec.id).catch(() => {})
+      return rec
+    } catch (e: unknown) {
+      error.value = e instanceof Error ? e.message : 'Post não encontrado'
+      throw e
+    } finally {
+      loading.value = false
+    }
   }
 
-  async function create(data: Partial<Post>) {
-    const rec = await pb.collection('posts').create(data)
-    return rec
+  async function create(data: Partial<PostsRecord>) {
+    const created = await postsService.create(data)
+    items.value.unshift(created)
+    return created
   }
 
-  async function update(id: string, data: Partial<Post>) {
-    return pb.collection('posts').update(id, data)
+  async function update(id: string, data: Partial<PostsRecord>) {
+    const updated = await postsService.update(id, data)
+    const i = items.value.findIndex(p => p.id === id)
+    if (i >= 0) items.value[i] = updated
+    if (current.value?.id === id) current.value = updated
+    return updated
   }
 
-  return { items, current, loading, fetchPublished, fetchBySlug, create, update }
+  async function remove(id: string) {
+    await postsService.delete(id)
+    items.value = items.value.filter(p => p.id !== id)
+    if (current.value?.id === id) current.value = null
+  }
+
+  return { items, current, loading, error, fetchPublished, fetchBySlug, create, update, remove }
 })
 ```
+
+> 📖 Esse padrão (service + store) é a **implementação canônica** do Padrão 1. Veja [`domain-feature-scaffold`](../domain-feature-scaffold/SKILL.md) pra receita completa.
 
 ## 4. Router
 

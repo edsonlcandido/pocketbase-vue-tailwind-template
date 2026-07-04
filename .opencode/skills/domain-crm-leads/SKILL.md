@@ -216,40 +216,85 @@ onRecordAfterUpdateRequest((e) => {
 }, $app)
 ```
 
-## 3. Pinia Store
+## 3. Pinia Store (via service layer — Padrão 1)
 
-`apps/web/src/stores/leads.ts`:
+### Service de leads (camada que fala com pb)
 
 ```ts
-import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
-import pb from '@/services/pocketbase'
+// apps/web/src/features/crm/leads/services/leads.service.ts
+import pb from '@/shared/services/pocketbase'
+import type { LeadsRecord } from '@pb-types'
 
 export type LeadStatus = 'new' | 'contacted' | 'qualified' | 'proposal' | 'negotiation' | 'won' | 'lost'
-export interface Lead {
-  id: string
-  name: string
-  email?: string
-  phone?: string
-  company?: string
-  status: LeadStatus
-  estimated_value?: number
-  owner?: string
-  // ... outros campos
+
+export const leadsService = {
+  // CRUD — Padrão 1 + 2
+  async list(page = 1, perPage = 200) {
+    return pb.collection('leads').getList<LeadsRecord>(page, perPage, {
+      sort: '-created', expand: 'owner',
+    })
+  },
+  async getById(id: string) {
+    return pb.collection('leads').getOne<LeadsRecord>(id)
+  },
+  async create(data: Partial<LeadsRecord>) {
+    return pb.collection('leads').create<LeadsRecord>(data)
+  },
+  async update(id: string, data: Partial<LeadsRecord>) {
+    return pb.collection('leads').update<LeadsRecord>(id, data)
+  },
+  async delete(id: string) {
+    return pb.collection('leads').delete(id)
+  },
+  async listByStatus(status: LeadStatus) {
+    return pb.collection('leads').getFullList<LeadsRecord>({
+      filter: `status = "${status}"`, sort: '-created', expand: 'owner',
+    })
+  },
+
+  // Lógica avançada — Padrão 2 (endpoint custom no PB)
+  async convertToClient(leadId: string) {
+    return pb.send(`/api/leads/${leadId}/convert`, { method: 'POST' })
+  },
 }
+```
+
+### Service realtime (subscribe encapsulado)
+
+```ts
+// apps/web/src/features/crm/leads/services/leads.realtime.ts
+import { realtimeService } from '@/shared/services/realtime.service'
+import type { LeadsRecord } from '@pb-types'
+
+export const leadsRealtime = {
+  subscribe(handler: (e: { action: 'create' | 'update' | 'delete'; record: LeadsRecord }) => void) {
+    return realtimeService.subscribe<LeadsRecord>('leads', handler)
+  },
+}
+```
+
+### Store (consome o service, NUNCA pb direto)
+
+```ts
+// apps/web/src/features/crm/leads/stores/leads.store.ts
+import { defineStore } from 'pinia'
+import { ref, computed, onUnmounted } from 'vue'
+import { leadsService, type LeadStatus } from '../services/leads.service'
+import { leadsRealtime } from '../services/leads.realtime'
+import type { LeadsRecord } from '@pb-types'
 
 export const useLeadsStore = defineStore('leads', () => {
-  const items = ref<Lead[]>([])
+  const items = ref<LeadsRecord[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
   const filter = ref<LeadStatus | 'all'>('all')
 
   const filtered = computed(() =>
-    filter.value === 'all' ? items.value : items.value.filter(l => l.status === filter.value)
+    filter.value === 'all' ? items.value : items.value.filter(l => l.status === filter.value),
   )
 
   const byStatus = computed(() => {
-    const groups: Record<LeadStatus, Lead[]> = {
+    const groups: Record<LeadStatus, LeadsRecord[]> = {
       new: [], contacted: [], qualified: [], proposal: [], negotiation: [], won: [], lost: [],
     }
     for (const l of items.value) groups[l.status]?.push(l)
@@ -260,26 +305,23 @@ export const useLeadsStore = defineStore('leads', () => {
     loading.value = true
     error.value = null
     try {
-      const res = await pb.collection('leads').getList<Lead>(1, 200, {
-        sort: '-created',
-        expand: 'owner',
-      })
+      const res = await leadsService.list()
       items.value = res.items
-    } catch (e: any) {
-      error.value = e?.message || 'Falha ao listar leads'
+    } catch (e: unknown) {
+      error.value = e instanceof Error ? e.message : 'Falha ao listar leads'
     } finally {
       loading.value = false
     }
   }
 
-  async function create(data: Partial<Lead>) {
-    const created = await pb.collection('leads').create(data)
+  async function create(data: Partial<LeadsRecord>) {
+    const created = await leadsService.create(data)
     items.value.unshift(created)
     return created
   }
 
-  async function update(id: string, data: Partial<Lead>) {
-    const updated = await pb.collection('leads').update(id, data)
+  async function update(id: string, data: Partial<LeadsRecord>) {
+    const updated = await leadsService.update(id, data)
     const idx = items.value.findIndex(l => l.id === id)
     if (idx >= 0) items.value[idx] = updated
     return updated
@@ -290,26 +332,33 @@ export const useLeadsStore = defineStore('leads', () => {
   }
 
   async function remove(id: string) {
-    await pb.collection('leads').delete(id)
+    await leadsService.delete(id)
     items.value = items.value.filter(l => l.id !== id)
   }
 
+  async function convertToClient(id: string) {
+    await leadsService.convertToClient(id)
+    // o hook PB faz o trabalho cross-collection (cria contato, atividade, dispara email)
+    // O realtime traz a atualização de status depois
+  }
+
   // realtime: sincroniza mudanças vindas de outros users
-  pb.collection('leads').subscribe('*', (e) => {
-    if (e.action === 'create') items.value.unshift(e.record as Lead)
+  const unsub = leadsRealtime.subscribe((e) => {
+    if (e.action === 'create') items.value.unshift(e.record)
     else if (e.action === 'update') {
       const idx = items.value.findIndex(l => l.id === e.record.id)
-      if (idx >= 0) items.value[idx] = e.record as Lead
+      if (idx >= 0) items.value[idx] = e.record
     } else if (e.action === 'delete') {
       items.value = items.value.filter(l => l.id !== e.record.id)
     }
   })
 
-  return { items, loading, error, filter, filtered, byStatus, fetchAll, create, update, moveTo, remove }
+  // cleanup automático
+  onUnmounted(() => unsub())
+
+  return { items, loading, error, filter, filtered, byStatus, fetchAll, create, update, moveTo, remove, convertToClient }
 })
 ```
-
-> ⚠️ `pb.collection('leads').subscribe('*')` é o hook realtime do PB — funciona com `domain-realtime` se quiser ir além.
 
 ## 4. Router
 

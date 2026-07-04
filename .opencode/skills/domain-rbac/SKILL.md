@@ -253,36 +253,70 @@ router.beforeEach((to, _from, next) => {
 }
 ```
 
-## 5. Pinia store admin de users
+## 5. Pinia store admin de users (via service layer — Padrão 1)
+
+### Service
 
 ```ts
-// stores/admin-users.ts
+// apps/web/src/features/rbac/services/admin-users.service.ts
+import pb from '@/shared/services/pocketbase'
+import type { UsersRecord } from '@pb-types'
+import type { Role } from '../composables/usePermissions'
+
+export const adminUsersService = {
+  async list(page = 1, perPage = 200) {
+    return pb.collection('users').getList<UsersRecord>(page, perPage, {
+      sort: 'email', fields: 'id,email,name,role,team,status',
+    })
+  },
+  async updateRole(id: string, role: Role) {
+    return pb.collection('users').update<UsersRecord>(id, { role })
+  },
+  async delete(id: string) {
+    return pb.collection('users').delete(id)
+  },
+}
+```
+
+### Store
+
+```ts
+// apps/web/src/features/rbac/stores/admin-users.store.ts
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import pb from '@/services/pocketbase'
+import { adminUsersService } from '../services/admin-users.service'
+import { type Role } from '../composables/usePermissions'
+import type { UsersRecord } from '@pb-types'
 
 export const useAdminUsersStore = defineStore('admin-users', () => {
-  const items = ref<any[]>([])
+  const items = ref<UsersRecord[]>([])
   const loading = ref(false)
+  const error = ref<string | null>(null)
 
   async function fetchAll() {
     loading.value = true
+    error.value = null
     try {
-      items.value = (await pb.collection('users').getList(1, 200, { sort: 'email' })).items
-    } finally { loading.value = false }
+      const res = await adminUsersService.list()
+      items.value = res.items
+    } catch (e: unknown) {
+      error.value = e instanceof Error ? e.message : 'Falha ao listar usuários'
+    } finally {
+      loading.value = false
+    }
   }
 
-  async function changeRole(id: string, role: string) {
-    await pb.collection('users').update(id, { role })
+  async function changeRole(id: string, role: Role) {
+    await adminUsersService.updateRole(id, role)
     await fetchAll()
   }
 
   async function remove(id: string) {
-    await pb.collection('users').delete(id)
+    await adminUsersService.delete(id)
     items.value = items.value.filter(u => u.id !== id)
   }
 
-  return { items, loading, fetchAll, changeRole, remove }
+  return { items, loading, error, fetchAll, changeRole, remove }
 })
 ```
 

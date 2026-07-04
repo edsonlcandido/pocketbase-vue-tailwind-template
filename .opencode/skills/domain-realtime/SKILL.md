@@ -62,42 +62,68 @@ unsub()
 
 > ⚠️ **Sempre** guardar `unsub()` e chamar no `onUnmounted` da store/componente. Esquecer disso vaza conexão.
 
-## Patterns Pinia
+## Patterns Pinia (via service layer — Padrão 1)
 
-### Store com subscription auto-cleanup
+### Service (encapsula subscribe + cleanup)
 
 ```ts
-// stores/realtime.ts (helper genérico)
-import { onUnmounted } from 'vue'
-import pb from '@/services/pocketbase'
+// apps/web/src/shared/services/realtime.service.ts
+import pb from '@/shared/services/pocketbase'
 
-export function useRealtimeSubscription(collection: string, handler: (e: any) => void) {
-  const unsub = pb.collection(collection).subscribe('*', handler)
-  onUnmounted(() => { try { unsub() } catch {} })
+export interface RealtimeEvent<T> {
+  action: 'create' | 'update' | 'delete'
+  record: T
+}
+
+export const realtimeService = {
+  // Helper genérico tipado (Padrão 5)
+  subscribe<T>(collection: string, handler: (e: RealtimeEvent<T>) => void): () => void {
+    return pb.collection(collection).subscribe<T>('*', handler as (e: unknown) => void)
+  },
+
+  // Lógica avançada (Padrão 2) — presença/typing via hook custom
+  async announcePresence(roomId: string) {
+    return pb.send('/api/realtime/presence', {
+      method: 'POST',
+      body: JSON.stringify({ room: roomId }),
+    })
+  },
+  async getOnlineUsers(roomId: string) {
+    return pb.send(`/api/realtime/presence/${roomId}`)
+  },
 }
 ```
 
-Uso em qualquer store:
+### Store (consome service, cleanup via `onUnmounted`)
 
 ```ts
-// stores/kanban.ts
+// apps/web/src/features/kanban/stores/kanban.store.ts
 import { defineStore } from 'pinia'
 import { ref, onUnmounted } from 'vue'
-import pb from '@/services/pocketbase'
+import { cardsService } from '../services/cards.service'
+import { realtimeService } from '@/shared/services/realtime.service'
+import type { CardsRecord } from '@pb-types'
 
 export const useKanbanStore = defineStore('kanban', () => {
-  const cards = ref<any[]>([])
+  const cards = ref<CardsRecord[]>([])
+  const loading = ref(false)
   let unsub: (() => void) | null = null
 
   async function load() {
-    cards.value = (await pb.collection('cards').getList(1, 200)).items
+    loading.value = true
+    try {
+      cards.value = await cardsService.listAll()
+    } finally {
+      loading.value = false
+    }
   }
 
   function subscribe() {
     if (unsub) return
-    unsub = pb.collection('cards').subscribe('*', (e) => {
-      if (e.action === 'create') cards.value.push(e.record)
-      else if (e.action === 'update') {
+    unsub = realtimeService.subscribe<CardsRecord>('cards', (e) => {
+      if (e.action === 'create') {
+        cards.value.push(e.record)
+      } else if (e.action === 'update') {
         const i = cards.value.findIndex(c => c.id === e.record.id)
         if (i >= 0) cards.value[i] = e.record
       } else if (e.action === 'delete') {
@@ -113,15 +139,17 @@ export const useKanbanStore = defineStore('kanban', () => {
   // cleanup automático se store for desmontado
   onUnmounted(() => unsubscribe())
 
-  return { cards, load, subscribe, unsubscribe }
+  return { cards, loading, load, subscribe, unsubscribe }
 })
 ```
+
+> O service de cards (`cardsService.listAll()`) vive em `features/<feature>/services/cards.service.ts` — CRUD básico via `pb.collection()`. A subscribe fica no `realtimeService` compartilhado.
 
 No view:
 
 ```vue
 <script setup lang="ts">
-import { useKanbanStore } from '@/stores/kanban'
+import { useKanbanStore } from '@/features/kanban/stores/kanban.store'
 import { onMounted } from 'vue'
 
 const kb = useKanbanStore()
