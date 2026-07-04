@@ -7,6 +7,20 @@ description: Estratégia macro de evolução do projeto no template pocketbase-v
 
 O template é um **canivete suíço**. Sem um roadmap, você perde tempo construindo a coisa errada. Esta skill é a visão macro — combine com as **skills técnicas** (vue-pinia-store, vue-router-auth…) e **skills de domínio** (domain-crm-leads, domain-saas-billing…) pra implementar.
 
+## 🏛️ Padrões arquiteturais (leia antes de começar)
+
+Antes da Fase 0, leia a seção [Arquitetura Recomendada](../../README.md#-arquitetura-recomendada) do README. Os 5 padrões são pré-requisitos de qualquer fase abaixo:
+
+| # | Padrão | Por que importa aqui |
+|---|---|---|
+| 1 | Camada de Service | Toda fase que criar feature precisa disso |
+| 2 | Service thin + hook custom | Decide o que vai no service vs hook |
+| 3 | Backend = verdade | Define regras de acesso em toda collection nova |
+| 4 | Vertical slicing | Decide estrutura de pastas na Fase 2 |
+| 5 | Type-safety | Decide setup de tsconfig + types na Fase 0/1 |
+
+Este roadmap assume que esses padrões estão sendo seguidos. Se você está construindo sem service layer ou sem collection rules, **volte e aplique os padrões primeiro** — qualquer feature em cima vai ter dívida técnica desde o dia 1.
+
 ## Fases recomendadas
 
 ```
@@ -56,10 +70,12 @@ Aqui é onde o app se diferencia. **Comece pelo modelo de dados**, não pela UI.
 
 1. **Desenhar 1-3 collections core** (ex: CRM → `leads`, `contacts`, `activities`)
 2. **Criar migrations JS** (versionadas no git)
-3. **Configurar regras de acesso** (CRUD por ownership)
-4. **Stub do Pinia store** (mesmo antes da UI)
-5. **1 view CRUD mínima** (lista + form) — validar fluxo end-to-end
-6. **Depois polir** (filtros, paginação, validações, UX)
+3. **Configurar regras de acesso** (CRUD por ownership) — **Padrão 3**
+4. **Criar a estrutura de pastas da feature** (vertical slice, se já tem 3+ features) — **Padrão 4**
+5. **Criar o service layer** (`features/<x>/services/<x>.service.ts`) — **Padrão 1 + 2**
+6. **Stub do Pinia store** que consome o service (não o pb direto) — **Padrão 1**
+7. **1 view CRUD mínima** (lista + form) — validar fluxo end-to-end
+8. **Depois polir** (filtros, paginação, validações, UX)
 
 ### Qual domínio?
 
@@ -110,9 +126,10 @@ Típico adicionar nessa fase:
 
 ## Ordem sugerida de skills pra um projeto novo
 
+0. **README → seção [Arquitetura Recomendada](../../README.md#-arquitetura-recomendada)** → entender os 5 padrões antes de qualquer linha de código
 1. `pocketbase-template-scaffold` → setup
-2. `pocketbase-collections` → modelagem base
-3. `vue-pinia-store` → state management
+2. `pocketbase-collections` → modelagem base (Padrões 2 e 3)
+3. `vue-pinia-store` → state management com service layer (Padrões 1 e 5)
 4. `vue-router-auth` → rotas/guards
 5. `tailwind-vue-component` → UI
 6. `domain-<seu-caso>` → feature end-to-end
