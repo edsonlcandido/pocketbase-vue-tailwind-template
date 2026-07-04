@@ -122,10 +122,9 @@ async function upload() {
   if (!file.value) return
   loading.value = true
   try {
-    const fd = new FormData()
-    fd.append('avatar', file.value)
-    const updated = await pb.collection('users').update(props.userId, fd)
-    auth.user = updated          // atualiza store reativamente
+    // Padrão 1: consome service, não pb direto
+    const updated = await userFilesService.uploadAvatar(props.userId, file.value)
+    auth.user = updated
     emit('updated', updated.avatar)
     preview.value = null
   } finally {
@@ -135,7 +134,7 @@ async function upload() {
 
 const currentUrl = () => {
   if (preview.value) return preview.value
-  if (props.avatar) return pb.files.getURL({ id: props.userId, collectionId: '_pb_users_auth_' }, props.avatar, { thumb: '100x100' })
+  if (props.avatar) return userFilesService.getAvatarUrl(props.userId, props.avatar)
   return null
 }
 </script>
@@ -181,22 +180,35 @@ $app.dao().saveCollection(leadsCol)
 ### Upload múltiplo
 
 ```ts
-async function uploadAttachments(recordId: string, files: File[]) {
-  const fd = new FormData()
-  for (const f of files) fd.append('attachments', f)
-  return pb.collection('leads').update(recordId, fd)
+// apps/web/src/features/crm/leads/services/leads-files.service.ts
+import { filesService } from '@/shared/services/files.service'
+import type { LeadsRecord } from '@pb-types'
+
+export const leadFilesService = {
+  // Padrão 1: helper específico da feature, consome filesService compartilhado
+  async uploadAttachments(recordId: string, files: File[]) {
+    const fd = new FormData()
+    for (const f of files) fd.append('attachments', f)
+    return filesService.uploadToRecord<LeadsRecord>('leads', recordId, 'attachments', fd)
+  },
 }
 ```
 
-### Visualizar/baixar
+Uso:
+
+```ts
+await leadFilesService.uploadAttachments(leadId, [file1, file2])
+```
+
+### Visualizar/baixar (componente consome service)
 
 ```vue
 <script setup lang="ts">
-import pb from '@/services/pocketbase'
+import { filesService } from '@/shared/services/files.service'
 const props = defineProps<{ record: any; field: string }>()
 
 function url(file: string, thumb?: string) {
-  return pb.files.getURL(props.record, file, { thumb })
+  return filesService.getUrl(props.record, file)
 }
 </script>
 
@@ -225,11 +237,13 @@ col.schema.findFieldByName('file').options = { ...col.schema.findFieldByName('fi
 $app.dao().saveCollection(col)
 ```
 
-Acessar de client autenticado:
+Acessar de client autenticado (via service):
 
 ```ts
-const token = pb.authStore.token
-const url = pb.files.getURL(record, record.file) + `?token=${token}`
+// Padrão 1: consome o service de signed URL
+import { filesService } from '@/shared/services/files.service'
+
+const url = await filesService.getSignedUrl('documents', recordId, record.file)
 ```
 
 Pra URL temporária (assinada server-side):
