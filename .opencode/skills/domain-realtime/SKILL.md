@@ -7,6 +7,46 @@ description: Como usar PocketBase subscriptions pra construir features em tempo 
 
 PocketBase tem **subscriptions SSE** nativas. Cada client abre um stream e recebe `create/update/delete` em tempo real. Perfeito pra kanban multi-user, chat, presença, dashboards live.
 
+## 🏛️ Alinhamento com Arquitetura Recomendada
+
+Esta skill segue os 5 padrões da [Arquitetura Recomendada](../../README.md#-arquitetura-recomendada):
+
+| Padrão | Aplicação nesta skill |
+|---|---|
+| 1 — Camada de Service | Subscribe via service helper (não chama `pb.collection().subscribe()` direto na store) |
+| 2 — Service thin + hook | Subscriptions são CRUD-level (vão no service); presença/typing vão via hook custom |
+| 3 — Backend é a verdade | Collection rules continuam aplicando — subscription só entrega o que o user pode ver |
+| 4 — Vertical slicing | Realtime é transversal; o subscribe vive dentro do service de cada feature |
+| 5 — Type-safety | Subscribe tipado com `<XxxRecord>` |
+
+### Service layer desta skill
+
+```ts
+// apps/web/src/features/<feature>/services/<feature>.realtime.ts
+import pb from '@/shared/services/pocketbase'
+import type { CardsRecord } from '@pb-types'
+
+export const cardsRealtime = {
+  // Padrão 1: subscribe encapsulado no service (não na store)
+  subscribe(handler: (e: { action: string; record: CardsRecord }) => void) {
+    return pb.collection('cards').subscribe<CardsRecord>('*', handler)
+  },
+
+  // Padrão 2: presença/typing via endpoint custom
+  async announcePresence(roomId: string) {
+    return pb.send('/api/realtime/presence', {
+      method: 'POST',
+      body: JSON.stringify({ room: roomId }),
+    })
+  },
+  async getOnlineUsers(roomId: string) {
+    return pb.send(`/api/realtime/presence/${roomId}`)
+  },
+}
+```
+
+> 📖 Esta skill complementa `vue-pinia-store` (cleanup de subscriptions via `onUnmounted`).
+
 ## Conceito
 
 ```ts
