@@ -15,6 +15,68 @@ Caso real: você vai vender um SaaS feito com este template. O cliente final **n
 
 Esta skill cobre **o gap** que o template original tem: tudo de auth/user CRUD hoje depende do admin PB nativo.
 
+## 🏛️ Alinhamento com Arquitetura Recomendada
+
+Esta skill segue os 5 padrões da [Arquitetura Recomendada](../../README.md#-arquitetura-recomendada):
+
+| Padrão | Aplicação nesta skill |
+|---|---|
+| 1 — Camada de Service | Store `admin` consome `adminService`, nunca `pb` direto |
+| 2 — Service thin + hook | CRUD de users direto; invite/reset/impersonate via endpoints custom (hooks) |
+| 3 — Backend é a verdade | Collection rules por role (`isAdmin`); hooks protegem último admin e auto-edição |
+| 4 — Vertical slicing | Estrutura `features/admin-panel/{users,invites,audit}/` |
+| 5 — Type-safety | Tipos via `@pb-types` (`UsersRecord`, `InvitesRecord`, `AuditLogRecord`) |
+
+### Service layer desta skill
+
+```ts
+// apps/web/src/features/admin-panel/services/admin.service.ts
+import pb from '@/shared/services/pocketbase'
+import type { UsersRecord, AuditLogRecord } from '@pb-types'
+
+export const adminService = {
+  // CRUD — Padrão 1 + 2
+  async listUsers(page = 1, perPage = 200) {
+    return pb.collection('users').getList<UsersRecord>(page, perPage, {
+      sort: '-created', expand: 'team,created_by',
+    })
+  },
+  async getUser(id: string) {
+    return pb.collection('users').getOne<UsersRecord>(id)
+  },
+  async updateUser(id: string, data: Partial<UsersRecord>) {
+    return pb.collection('users').update<UsersRecord>(id, data)
+  },
+  async deleteUser(id: string) {
+    return pb.collection('users').delete(id)
+  },
+  async listAuditLog(page = 1, perPage = 50) {
+    return pb.collection('audit_log').getList<AuditLogRecord>(page, perPage, {
+      sort: '-created', expand: 'actor',
+    })
+  },
+
+  // Lógica avançada — Padrão 2 (endpoints custom protegidos por $apis.requireSuperuserAuth)
+  async createUser(data: { email: string; name?: string; role: string; password?: string }) {
+    return pb.send('/api/admin/users', { method: 'POST', body: JSON.stringify(data) })
+  },
+  async invite(data: { email: string; role: string }) {
+    return pb.send('/api/admin/invites', { method: 'POST', body: JSON.stringify(data) })
+  },
+  async resetPassword(userId: string) {
+    return pb.send(`/api/admin/users/${userId}/reset-password`, { method: 'POST' })
+  },
+  async impersonate(userId: string) {
+    return pb.send(`/api/admin/users/${userId}/impersonate`, { method: 'POST' })
+  },
+  async validateInviteToken(token: string) {
+    return pb.send(`/api/invites/${token}`)
+  },
+}
+```
+
+> 📖 Detalhes do padrão service layer na skill [`vue-pinia-store`](../vue-pinia-store/SKILL.md). Esta skill depende fortemente de `domain-rbac` pra matriz de permissões.
+
 ## Visão do domínio
 
 ```
