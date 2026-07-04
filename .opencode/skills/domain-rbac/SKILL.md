@@ -7,6 +7,56 @@ description: Como implementar RBAC (Role-Based Access Control) granular no templ
 
 PocketBase não tem RBAC pronto. Mas o template já tem `auth.ts` que suporta `user.role`. Esta skill monta o sistema inteiro.
 
+## 🏛️ Alinhamento com Arquitetura Recomendada
+
+Esta skill segue os 5 padrões da [Arquitetura Recomendada](../../README.md#-arquitetura-recomendada):
+
+| Padrão | Aplicação nesta skill |
+|---|---|
+| 1 — Camada de Service | Lógica de permissão fica no service + composable; store consome service |
+| 2 — Service thin + hook | CRUD de roles via service; checagens server-side via hook `onRecordBeforeCreateRequest` |
+| 3 — Backend é a verdade | Backend bloqueia criação de admin via hook; front só **esconde UI** por UX |
+| 4 — Vertical slicing | Estrutura `features/rbac/{permissions,middleware,directives}/` |
+| 5 — Type-safety | Role/Ação como union types, não strings soltas |
+
+### Service layer desta skill
+
+```ts
+// apps/web/src/features/rbac/services/permissions.service.ts
+import pb from '@/shared/services/pocketbase'
+import type { UsersRecord } from '@pb-types'
+import { usePermissions } from '../composables/usePermissions'
+
+export const permissionsService = {
+  // CRUD — Padrão 1 + 2
+  async listUsersWithRoles(page = 1, perPage = 200) {
+    return pb.collection('users').getList<UsersRecord>(page, perPage, {
+      sort: '-created', fields: 'id,email,name,role,team,status',
+    })
+  },
+  async updateUserRole(userId: string, role: UsersRecord['role']) {
+    return pb.collection('users').update<UsersRecord>(userId, { role })
+  },
+
+  // Lógica avançada — Padrão 2 (endpoint custom)
+  async listUsersByPermission(permission: string) {
+    return pb.send('/api/admin/users/by-permission', {
+      method: 'POST',
+      body: JSON.stringify({ permission }),
+    })
+  },
+}
+
+// Helper de checagem (client-side, NÃO substitui backend)
+export const can = (user: UsersRecord | null, action: string, resource: string) => {
+  if (!user) return false
+  const perms = usePermissions(user.role as any)
+  return perms.can(action, resource)
+}
+```
+
+> ⚠️ **Lembrete crítico**: gating no front é **UX, não segurança**. O backend (Padrão 3) enforça via collection rules + hooks. Esta skill fornece a matriz pro front decidir o que mostrar; o PB decide o que aceitar.
+
 ## Modelo
 
 ```
