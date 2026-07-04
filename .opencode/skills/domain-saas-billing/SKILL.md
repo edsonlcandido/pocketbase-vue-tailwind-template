@@ -9,6 +9,63 @@ Caso real: app freemium/SaaS com planos Free/Pro/Enterprise, gating de features,
 
 > **Stack típico**: Stripe Checkout (cliente) + Stripe Webhook (PB hook) + collection `subscriptions` (sincronizada via webhook).
 
+## 🏛️ Alinhamento com Arquitetura Recomendada
+
+Esta skill segue os 5 padrões da [Arquitetura Recomendada](../../README.md#-arquitetura-recomendada):
+
+| Padrão | Aplicação nesta skill |
+|---|---|
+| 1 — Camada de Service | Store de `subscriptions` consome `billingService`, nunca `pb` direto |
+| 2 — Service thin + hook | CRUD direto; checkout/webhook/refund via endpoints custom (hooks PB) |
+| 3 — Backend é a verdade | Webhook valida assinatura Stripe no backend; entitlements via collection rules |
+| 4 — Vertical slicing | Estrutura `features/billing/{plans,subscriptions,invoices,entitlements}/` |
+| 5 — Type-safety | Tipos via `@pb-types`; `Plan`, `Subscription`, `Entitlement` como tipos do PB |
+
+### Service layer desta skill
+
+```ts
+// apps/web/src/features/billing/services/billing.service.ts
+import pb from '@/shared/services/pocketbase'
+import type { PlansRecord, SubscriptionsRecord, InvoicesRecord } from '@pb-types'
+
+export const billingService = {
+  // CRUD — Padrão 1 + 2
+  async listPlans() {
+    return pb.collection('plans').getFullList<PlansRecord>({ filter: 'is_active = true', sort: 'sort_order' })
+  },
+  async getCurrentSubscription(userId: string) {
+    return pb.collection('subscriptions').getFirstListItem<SubscriptionsRecord>(
+      `user = "${userId}"`,
+      { sort: '-created' }
+    )
+  },
+  async listInvoices(userId: string, page = 1) {
+    return pb.collection('invoices').getList<InvoicesRecord>(page, 20, {
+      filter: `user = "${userId}"`, sort: '-created',
+    })
+  },
+
+  // Lógica avançada — Padrão 2 (endpoints custom protegidos)
+  async createCheckoutSession(planSlug: string) {
+    return pb.send('/api/billing/checkout', {
+      method: 'POST',
+      body: JSON.stringify({ plan: planSlug }),
+    })
+  },
+  async cancelSubscription() {
+    return pb.send('/api/billing/cancel', { method: 'POST' })
+  },
+  async reactivateSubscription() {
+    return pb.send('/api/billing/reactivate', { method: 'POST' })
+  },
+  async getEntitlements() {
+    return pb.send('/api/billing/entitlements')
+  },
+}
+```
+
+> ⚠️ **Webhook do Stripe** roda **no backend (Padrão 3)**. Validar assinatura antes de mexer em `subscriptions`/`entitlements`. Detalhes na seção "Hook Stripe" abaixo.
+
 ## Visão do domínio
 
 ```
