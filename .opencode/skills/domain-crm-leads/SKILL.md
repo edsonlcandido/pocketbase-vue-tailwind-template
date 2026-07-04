@@ -9,6 +9,60 @@ Caso real: você tá construindo um CRM. Aqui vai o passo a passo completo pra a
 
 > Esta skill é **end-to-end**: modelagem → hooks → store → UI. Use em conjunto com `vue-pinia-store`, `vue-router-auth`, `tailwind-vue-component` pros detalhes de cada peça.
 
+## 🏛️ Alinhamento com Arquitetura Recomendada
+
+Esta skill segue os 5 padrões da [Arquitetura Recomendada](../../README.md#-arquitetura-recomendada):
+
+| Padrão | Aplicação nesta skill |
+|---|---|
+| 1 — Camada de Service | Stores de `leads`/`contacts`/`activities` consomem service, nunca `pb` direto |
+| 2 — Service thin + hook | CRUD direto no service; "converter lead em cliente" vai via hook custom (`/api/leads/:id/convert`) |
+| 3 — Backend é a verdade | Regras de acesso por ownership + hooks de proteção |
+| 4 — Vertical slicing | Estrutura `features/crm/{leads,contacts,activities}/` |
+| 5 — Type-safety | Tipos via `@pb-types`, zero `any` |
+
+### Service layer desta skill
+
+```ts
+// apps/web/src/features/crm/leads/services/leads.service.ts
+import pb from '@/shared/services/pocketbase'
+import type { LeadsRecord } from '@pb-types'
+
+export const leadsService = {
+  // CRUD — Padrão 1 + 2 (thin wrapper)
+  async list(page = 1, perPage = 50) {
+    return pb.collection('leads').getList<LeadsRecord>(page, perPage)
+  },
+  async getById(id: string) {
+    return pb.collection('leads').getOne<LeadsRecord>(id)
+  },
+  async create(data: Partial<LeadsRecord>) {
+    return pb.collection('leads').create<LeadsRecord>(data)
+  },
+  async update(id: string, data: Partial<LeadsRecord>) {
+    return pb.collection('leads').update<LeadsRecord>(id, data)
+  },
+  async delete(id: string) {
+    return pb.collection('leads').delete(id)
+  },
+
+  // Lógica avançada — Padrão 2 (hook custom no PB)
+  async convertToClient(leadId: string) {
+    return pb.send(`/api/leads/${leadId}/convert`, { method: 'POST' })
+  },
+
+  // Query com filtro do funil
+  async byStatus(status: string) {
+    return pb.collection('leads').getList<LeadsRecord>(1, 200, {
+      filter: `status = "${status}"`,
+      sort: '-created',
+    })
+  },
+}
+```
+
+> 📖 Detalhes do padrão service layer na skill [`vue-pinia-store`](../vue-pinia-store/SKILL.md) e regras de acesso em [`pocketbase-collections`](../pocketbase-collections/SKILL.md).
+
 ## Visão do domínio
 
 ```
