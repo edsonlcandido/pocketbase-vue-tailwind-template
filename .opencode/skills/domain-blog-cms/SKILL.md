@@ -7,6 +7,59 @@ description: Como adicionar um Blog/CMS completo (posts, categorias, tags, autor
 
 Caso real: app com área de conteúdo (blog, knowledge base, changelog, docs).
 
+## 🏛️ Alinhamento com Arquitetura Recomendada
+
+Esta skill segue os 5 padrões da [Arquitetura Recomendada](../../README.md#-arquitetura-recomendada):
+
+| Padrão | Aplicação nesta skill |
+|---|---|
+| 1 — Camada de Service | Store de `posts` consome service, nunca `pb` direto |
+| 2 — Service thin + hook | CRUD direto no service; contador de views e slug auto-gerado via hooks |
+| 3 — Backend é a verdade | `posts` filtra por `status = "published" \|\| author = @request.auth.id` |
+| 4 — Vertical slicing | Estrutura `features/blog/{posts,categories,tags,comments}/` |
+| 5 — Type-safety | Tipos via `@pb-types` (`PostsRecord`, `CategoriesRecord`, `CommentsRecord`) |
+
+### Service layer desta skill
+
+```ts
+// apps/web/src/features/blog/posts/services/posts.service.ts
+import pb from '@/shared/services/pocketbase'
+import type { PostsRecord } from '@pb-types'
+
+export const postsService = {
+  // CRUD — Padrão 1 + 2
+  async listPublished(page = 1, perPage = 12) {
+    return pb.collection('posts').getList<PostsRecord>(page, perPage, {
+      filter: 'status = "published"',
+      sort: '-published_at',
+      expand: 'author,category,tags',
+    })
+  },
+  async getBySlug(slug: string) {
+    return pb.collection('posts').getFirstListItem<PostsRecord>(
+      `slug = "${slug}" && status = "published"`,
+      { expand: 'author,category,tags' }
+    )
+  },
+  async create(data: Partial<PostsRecord>) {
+    return pb.collection('posts').create<PostsRecord>(data)
+  },
+  async update(id: string, data: Partial<PostsRecord>) {
+    return pb.collection('posts').update<PostsRecord>(id, data)
+  },
+  async delete(id: string) {
+    return pb.collection('posts').delete(id)
+  },
+
+  // Lógica avançada — Padrão 2 (endpoint custom no PB)
+  async incrementView(postId: string) {
+    return pb.send(`/api/posts/${postId}/view`, { method: 'POST' })
+  },
+}
+```
+
+> 📖 Detalhes do padrão service layer na skill [`vue-pinia-store`](../vue-pinia-store/SKILL.md).
+
 ## Visão do domínio
 
 ```
