@@ -7,6 +7,71 @@ description: Como implementar upload e gerenciamento de arquivos no template —
 
 PocketBase tem campo `file` nativo (filesystem local) + S3-compatível opcional. Cobre 90% dos casos sem libs externas.
 
+## 🏛️ Alinhamento com Arquitetura Recomendada
+
+Esta skill segue os 5 padrões da [Arquitetura Recomendada](../../README.md#-arquitetura-recomendada):
+
+| Padrão | Aplicação nesta skill |
+|---|---|
+| 1 — Camada de Service | Upload/download/delete via service (`filesService`), não `pb.collection().upload()` direto na store |
+| 2 — Service thin + hook | Upload de arquivo simples via service; signed URLs pra arquivos privados via hook custom |
+| 3 — Backend é a verdade | Regras de acesso ao arquivo (`listRule`/`viewRule`) são collection rules; validação de MIME/tamanho via schema |
+| 4 — Vertical slicing | `features/<feature>/` consome `filesService` compartilhado em `shared/` |
+| 5 — Type-safety | Tipos via `@pb-types`; records com campo `file` são tipados |
+
+### Service layer desta skill
+
+```ts
+// apps/web/src/shared/services/files.service.ts
+import pb from '@/shared/services/pocketbase'
+import type { UsersRecord, PostsRecord } from '@pb-types'
+
+export const filesService = {
+  // Upload (Padrão 1 + 2) — wrapper genérico
+  async uploadToRecord<T extends Record<string, any>>(
+    collection: string,
+    recordId: string,
+    field: string,
+    file: File,
+  ): Promise<T> {
+    const formData = new FormData()
+    formData.append(field, file)
+    return pb.collection(collection).update<T>(recordId, formData)
+  },
+
+  // URL pública (Padrão 1) — passa pelo SDK do PB
+  getUrl(record: UsersRecord | PostsRecord, filename: string): string {
+    return pb.files.getURL(record, filename)
+  },
+
+  // Signed URL para arquivos privados — Padrão 2 (hook custom)
+  async getSignedUrl(collection: string, recordId: string, filename: string): Promise<string> {
+    const { token } = await pb.send('/api/files/signed-token', {
+      method: 'POST',
+      body: JSON.stringify({ collection, recordId, filename }),
+    })
+    return `${pb.baseUrl}/api/files/${collection}/${recordId}/${filename}?token=${token}`
+  },
+
+  // Thumbnail on-the-fly (Padrão 2 — gerado no hook)
+  getThumbnailUrl(record: UsersRecord, filename: string, size: '100x100' | '300x300' = '100x100'): string {
+    return `${pb.files.getURL(record, filename)}?thumb=${size}`
+  },
+}
+
+// Helpers específicos por feature (vertical slice)
+export const userFilesService = {
+  async uploadAvatar(userId: string, file: File) {
+    return filesService.uploadToRecord<UsersRecord>('users', userId, 'avatar', file)
+  },
+  getAvatarUrl(user: UsersRecord): string | null {
+    return user.avatar ? filesService.getUrl(user, user.avatar) : null
+  },
+}
+```
+
+> ⚠️ **Padrão 3 em ação**: arquivos privados (anexos confidenciais) exigem `listRule: ""` na collection + endpoint `/api/files/signed-token` que valida permissão antes de emitir token temporário.
+
 ## Caso 1 — Avatar do user
 
 ### Adicionar campo à collection `users`
