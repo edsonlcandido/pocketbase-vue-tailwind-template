@@ -7,6 +7,55 @@ description: Como enviar emails transacionais no template — password reset, ve
 
 PocketBase tem **Mailer** nativo (`$app.newMailClient()`). Pra casos simples, dá pra enviar direto via SMTP. Pra produção, use um provider (Resend, SendGrid, Postmark) através de `$http`.
 
+## 🏛️ Alinhamento com Arquitetura Recomendada
+
+Esta skill é majoritariamente **backend** (hooks PB), mas segue os padrões:
+
+| Padrão | Aplicação nesta skill |
+|---|---|
+| 1 — Camada de Service | Front chama `notificationsService.send(...)` → service dispara `pb.send('/api/notifications/send', ...)` |
+| 2 — Service thin + hook | Email é efeito externo — **sempre** via endpoint custom / hook (`onRecordAfterCreateRequest` ou `routerAdd`) |
+| 3 — Backend é a verdade | Envio acontece no PB, não no front (front não tem acesso SMTP direto) |
+| 4 — Vertical slicing | Templates ficam em `pocketbase/pb_hooks/templates/`; service front em `features/notifications/` |
+| 5 — Type-safety | Templates tipados com interface `MailerPayload` |
+
+### Service layer desta skill
+
+```ts
+// apps/web/src/features/notifications/services/notifications.service.ts
+import pb from '@/shared/services/pocketbase'
+
+export interface MailerPayload {
+  to: string
+  subject: string
+  template: 'welcome' | 'reset-password' | 'invoice' | 'custom'
+  data: Record<string, unknown>
+}
+
+export const notificationsService = {
+  // Padrão 2: envio SEMPRE via hook (Padrão 3 — SMTP nunca no front)
+  async send(payload: MailerPayload) {
+    return pb.send('/api/notifications/send', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  },
+
+  // Casos comuns — wrappers tipados
+  async sendWelcome(email: string, name: string) {
+    return this.send({ to: email, subject: 'Bem-vindo!', template: 'welcome', data: { name } })
+  },
+  async sendPasswordReset(email: string, token: string) {
+    return this.send({ to: email, subject: 'Reset de senha', template: 'reset-password', data: { token } })
+  },
+  async sendInvoice(email: string, invoiceId: string, amount: number) {
+    return this.send({ to: email, subject: 'Nova fatura', template: 'invoice', data: { invoiceId, amount } })
+  },
+}
+```
+
+> ⚠️ **Nunca** exponha credenciais SMTP no front (variáveis `VITE_*` viram strings bundled — visíveis). SMTP fica em env do **processo PB**, lido via `$os.getenv(...)` no hook.
+
 ## Setup SMTP (dev/teste)
 
 `pocketbase/pb_data/.env` (PB lê da env do processo):

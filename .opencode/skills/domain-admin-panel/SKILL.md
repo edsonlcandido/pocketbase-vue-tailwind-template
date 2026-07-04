@@ -15,6 +15,68 @@ Caso real: você vai vender um SaaS feito com este template. O cliente final **n
 
 Esta skill cobre **o gap** que o template original tem: tudo de auth/user CRUD hoje depende do admin PB nativo.
 
+## 🏛️ Alinhamento com Arquitetura Recomendada
+
+Esta skill segue os 5 padrões da [Arquitetura Recomendada](../../README.md#-arquitetura-recomendada):
+
+| Padrão | Aplicação nesta skill |
+|---|---|
+| 1 — Camada de Service | Store `admin` consome `adminService`, nunca `pb` direto |
+| 2 — Service thin + hook | CRUD de users direto; invite/reset/impersonate via endpoints custom (hooks) |
+| 3 — Backend é a verdade | Collection rules por role (`isAdmin`); hooks protegem último admin e auto-edição |
+| 4 — Vertical slicing | Estrutura `features/admin-panel/{users,invites,audit}/` |
+| 5 — Type-safety | Tipos via `@pb-types` (`UsersRecord`, `InvitesRecord`, `AuditLogRecord`) |
+
+### Service layer desta skill
+
+```ts
+// apps/web/src/features/admin-panel/services/admin.service.ts
+import pb from '@/shared/services/pocketbase'
+import type { UsersRecord, AuditLogRecord } from '@pb-types'
+
+export const adminService = {
+  // CRUD — Padrão 1 + 2
+  async listUsers(page = 1, perPage = 200) {
+    return pb.collection('users').getList<UsersRecord>(page, perPage, {
+      sort: '-created', expand: 'team,created_by',
+    })
+  },
+  async getUser(id: string) {
+    return pb.collection('users').getOne<UsersRecord>(id)
+  },
+  async updateUser(id: string, data: Partial<UsersRecord>) {
+    return pb.collection('users').update<UsersRecord>(id, data)
+  },
+  async deleteUser(id: string) {
+    return pb.collection('users').delete(id)
+  },
+  async listAuditLog(page = 1, perPage = 50) {
+    return pb.collection('audit_log').getList<AuditLogRecord>(page, perPage, {
+      sort: '-created', expand: 'actor',
+    })
+  },
+
+  // Lógica avançada — Padrão 2 (endpoints custom protegidos por $apis.requireSuperuserAuth)
+  async createUser(data: { email: string; name?: string; role: string; password?: string }) {
+    return pb.send('/api/admin/users', { method: 'POST', body: JSON.stringify(data) })
+  },
+  async invite(data: { email: string; role: string }) {
+    return pb.send('/api/admin/invites', { method: 'POST', body: JSON.stringify(data) })
+  },
+  async resetPassword(userId: string) {
+    return pb.send(`/api/admin/users/${userId}/reset-password`, { method: 'POST' })
+  },
+  async impersonate(userId: string) {
+    return pb.send(`/api/admin/users/${userId}/impersonate`, { method: 'POST' })
+  },
+  async validateInviteToken(token: string) {
+    return pb.send(`/api/invites/${token}`)
+  },
+}
+```
+
+> 📖 Detalhes do padrão service layer na skill [`vue-pinia-store`](../vue-pinia-store/SKILL.md). Esta skill depende fortemente de `domain-rbac` pra matriz de permissões.
+
 ## Visão do domínio
 
 ```
@@ -288,37 +350,87 @@ routerAdd('POST', '/api/admin/users/:id/impersonate', (c) => {
 | `audit_log`  | admin only                     | admin only        | server-only (hooks) | admin only         | never (append-only) |
 | `teams`      | `""` (qualquer logado)          | mesmo             | admin      | admin                       | admin              |
 
-## 4. Pinia store
+## 4. Pinia store (via service layer — Padrão 1)
 
-`apps/web/src/stores/admin.ts`:
+### Service (camada que fala com pb)
 
 ```ts
+// apps/web/src/features/admin-panel/services/admin.service.ts
+import pb from '@/shared/services/pocketbase'
+import type { UsersRecord, AuditLogRecord, InvitesRecord } from '@pb-types'
+
+export const adminService = {
+  // CRUD — Padrão 1 + 2
+  async listUsers(page = 1, perPage = 200) {
+    return pb.collection('users').getList<UsersRecord>(page, perPage, {
+      sort: '-created', expand: 'team,created_by',
+    })
+  },
+  async getUser(id: string) {
+    return pb.collection('users').getOne<UsersRecord>(id)
+  },
+  async updateUser(id: string, data: Partial<UsersRecord>) {
+    return pb.collection('users').update<UsersRecord>(id, data)
+  },
+  async deleteUser(id: string) {
+    return pb.collection('users').delete(id)
+  },
+  async listAuditLog(page = 1, perPage = 50) {
+    return pb.collection('audit_log').getList<AuditLogRecord>(page, perPage, {
+      sort: '-created', expand: 'actor',
+    })
+  },
+  async listInvites(page = 1, perPage = 50) {
+    return pb.collection('invites').getList<InvitesRecord>(page, perPage, {
+      sort: '-created', expand: 'invited_by',
+    })
+  },
+
+  // Lógica avançada — Padrão 2 (endpoints custom protegidos por $apis.requireSuperuserAuth no PB)
+  async createUser(data: { email: string; name?: string; role: string; password?: string }) {
+    return pb.send('/api/admin/users', { method: 'POST', body: JSON.stringify(data) })
+  },
+  async invite(data: { email: string; role: string }) {
+    return pb.send('/api/admin/invites', { method: 'POST', body: JSON.stringify(data) })
+  },
+  async resetPassword(userId: string) {
+    return pb.send(`/api/admin/users/${userId}/reset-password`, { method: 'POST' })
+  },
+  async impersonate(userId: string) {
+    return pb.send(`/api/admin/users/${userId}/impersonate`, { method: 'POST' })
+  },
+  async validateInviteToken(token: string) {
+    return pb.send(`/api/invites/${token}`)
+  },
+}
+```
+
+### Store (consome o service, NUNCA pb direto)
+
+```ts
+// apps/web/src/features/admin-panel/stores/admin.store.ts
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import pb from '@/services/pocketbase'
+import { adminService } from '../services/admin.service'
+import type { UsersRecord, AuditLogRecord } from '@pb-types'
 
-export interface AdminUser {
-  id: string
-  email: string
-  name?: string
-  role: 'admin' | 'manager' | 'member' | 'viewer'
-  status: 'active' | 'invited' | 'suspended'
-  last_login_at?: string
-  created: string
-  expand?: { team?: any; created_by?: any }
-}
+type Role = 'admin' | 'manager' | 'member' | 'viewer'
+type Status = 'active' | 'invited' | 'suspended'
 
 export const useAdminStore = defineStore('admin', () => {
-  const users = ref<AdminUser[]>([])
+  const users = ref<UsersRecord[]>([])
+  const auditEntries = ref<AuditLogRecord[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
   const query = ref('')
-  const roleFilter = ref<'all' | AdminUser['role']>('all')
+  const roleFilter = ref<'all' | Role>('all')
 
   const filtered = computed(() => {
     const q = query.value.toLowerCase().trim()
     return users.value.filter(u => {
-      const matchesQ = !q || u.email.toLowerCase().includes(q) || (u.name?.toLowerCase().includes(q) ?? false)
+      const matchesQ = !q
+        || u.email.toLowerCase().includes(q)
+        || (u.name?.toLowerCase().includes(q) ?? false)
       const matchesR = roleFilter.value === 'all' || u.role === roleFilter.value
       return matchesQ && matchesR
     })
@@ -326,57 +438,54 @@ export const useAdminStore = defineStore('admin', () => {
 
   async function fetchUsers() {
     loading.value = true
+    error.value = null
     try {
-      const res = await pb.collection('users').getList<AdminUser>(1, 200, {
-        sort: '-created', expand: 'team,created_by',
-      })
+      const res = await adminService.listUsers()
       users.value = res.items
-    } catch (e: any) { error.value = e?.message } finally { loading.value = false }
+    } catch (e: unknown) {
+      error.value = e instanceof Error ? e.message : 'Falha ao buscar usuários'
+    } finally {
+      loading.value = false
+    }
   }
 
   async function createUser(data: { email: string; name?: string; role: string; password?: string }) {
-    const tempPass = data.password || Math.random().toString(36).slice(-12)
-    const created = await pb.collection('users').create({
-      email: data.email, name: data.name, role: data.role, status: 'active',
-      password: tempPass, passwordConfirm: tempPass,
-    })
-    users.value.unshift(created)
-    return { user: created, tempPassword: tempPass }
+    const result = await adminService.createUser(data) as { user: UsersRecord; tempPassword: string }
+    users.value.unshift(result.user)
+    return result
   }
 
-  async function updateUser(id: string, data: Partial<AdminUser>) {
-    const updated = await pb.collection('users').update(id, data)
+  async function updateUser(id: string, data: Partial<UsersRecord>) {
+    const updated = await adminService.updateUser(id, data)
     const i = users.value.findIndex(u => u.id === id)
     if (i >= 0) users.value[i] = updated
     return updated
   }
 
-  async function suspend(id: string) {
-    return updateUser(id, { status: 'suspended' })
-  }
-  async function reactivate(id: string) {
-    return updateUser(id, { status: 'active' })
-  }
+  async function suspend(id: string) { return updateUser(id, { status: 'suspended' as Status }) }
+  async function reactivate(id: string) { return updateUser(id, { status: 'active' as Status }) }
 
   async function deleteUser(id: string) {
-    await pb.collection('users').delete(id)
+    await adminService.deleteUser(id)
     users.value = users.value.filter(u => u.id !== id)
   }
 
   async function invite(data: { email: string; role: string }) {
-    return pb.send('/api/admin/invites', { method: 'POST', body: JSON.stringify(data) })
+    return adminService.invite(data)
   }
 
-  async function resetPassword(id: string) {
-    return pb.send('/api/admin/users/' + id + '/reset-password', { method: 'POST' })
+  async function resetPassword(userId: string) {
+    return adminService.resetPassword(userId)
   }
 
-  async function fetchAuditLog(page = 1) {
-    return pb.collection('audit_log').getList(1, 50, { sort: '-created', expand: 'actor' })
+  async function fetchAuditLog() {
+    const res = await adminService.listAuditLog()
+    auditEntries.value = res.items
+    return res
   }
 
   return {
-    users, loading, error, query, roleFilter, filtered,
+    users, auditEntries, loading, error, query, roleFilter, filtered,
     fetchUsers, createUser, updateUser, suspend, reactivate, deleteUser,
     invite, resetPassword, fetchAuditLog,
   }

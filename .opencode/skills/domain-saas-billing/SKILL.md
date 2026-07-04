@@ -9,6 +9,63 @@ Caso real: app freemium/SaaS com planos Free/Pro/Enterprise, gating de features,
 
 > **Stack típico**: Stripe Checkout (cliente) + Stripe Webhook (PB hook) + collection `subscriptions` (sincronizada via webhook).
 
+## 🏛️ Alinhamento com Arquitetura Recomendada
+
+Esta skill segue os 5 padrões da [Arquitetura Recomendada](../../README.md#-arquitetura-recomendada):
+
+| Padrão | Aplicação nesta skill |
+|---|---|
+| 1 — Camada de Service | Store de `subscriptions` consome `billingService`, nunca `pb` direto |
+| 2 — Service thin + hook | CRUD direto; checkout/webhook/refund via endpoints custom (hooks PB) |
+| 3 — Backend é a verdade | Webhook valida assinatura Stripe no backend; entitlements via collection rules |
+| 4 — Vertical slicing | Estrutura `features/billing/{plans,subscriptions,invoices,entitlements}/` |
+| 5 — Type-safety | Tipos via `@pb-types`; `Plan`, `Subscription`, `Entitlement` como tipos do PB |
+
+### Service layer desta skill
+
+```ts
+// apps/web/src/features/billing/services/billing.service.ts
+import pb from '@/shared/services/pocketbase'
+import type { PlansRecord, SubscriptionsRecord, InvoicesRecord } from '@pb-types'
+
+export const billingService = {
+  // CRUD — Padrão 1 + 2
+  async listPlans() {
+    return pb.collection('plans').getFullList<PlansRecord>({ filter: 'is_active = true', sort: 'sort_order' })
+  },
+  async getCurrentSubscription(userId: string) {
+    return pb.collection('subscriptions').getFirstListItem<SubscriptionsRecord>(
+      `user = "${userId}"`,
+      { sort: '-created' }
+    )
+  },
+  async listInvoices(userId: string, page = 1) {
+    return pb.collection('invoices').getList<InvoicesRecord>(page, 20, {
+      filter: `user = "${userId}"`, sort: '-created',
+    })
+  },
+
+  // Lógica avançada — Padrão 2 (endpoints custom protegidos)
+  async createCheckoutSession(planSlug: string) {
+    return pb.send('/api/billing/checkout', {
+      method: 'POST',
+      body: JSON.stringify({ plan: planSlug }),
+    })
+  },
+  async cancelSubscription() {
+    return pb.send('/api/billing/cancel', { method: 'POST' })
+  },
+  async reactivateSubscription() {
+    return pb.send('/api/billing/reactivate', { method: 'POST' })
+  },
+  async getEntitlements() {
+    return pb.send('/api/billing/entitlements')
+  },
+}
+```
+
+> ⚠️ **Webhook do Stripe** roda **no backend (Padrão 3)**. Validar assinatura antes de mexer em `subscriptions`/`entitlements`. Detalhes na seção "Hook Stripe" abaixo.
+
 ## Visão do domínio
 
 ```
@@ -269,59 +326,127 @@ routerAdd('POST', '/api/billing/portal', async (c) => {
 })
 ```
 
-## 3. Entitlements — gating de features
+## 3. Entitlements — gating de features (via service layer — Padrão 1)
 
-### `apps/web/src/composables/useEntitlements.ts`
+### Service
 
 ```ts
-import { computed } from 'vue'
-import { useAuthStore } from '@/stores/auth'
-import pb from '@/services/pocketbase'
+// apps/web/src/features/billing/services/billing.service.ts
+import pb from '@/shared/services/pocketbase'
+import type { PlansRecord, SubscriptionsRecord, InvoicesRecord } from '@pb-types'
 
-export interface Entitlements {
-  plan: string | null
-  features: Set<string>
-  limits: Record<string, number>
-  isPro: boolean
-  can: (feature: string) => boolean
-  limitReached: (key: string, current: number) => boolean
+export const billingService = {
+  // CRUD — Padrão 1 + 2
+  async listActivePlans() {
+    return pb.collection('plans').getFullList<PlansRecord>({
+      filter: 'is_active = true', sort: 'sort_order',
+    })
+  },
+  async getCurrentSubscription(userId: string) {
+    return pb.collection('subscriptions').getFirstListItem<SubscriptionsRecord>(
+      `user = "${userId}"`,
+      { sort: '-created', expand: 'plan' },
+    )
+  },
+  async listInvoices(userId: string, page = 1) {
+    return pb.collection('invoices').getList<InvoicesRecord>(page, 20, {
+      filter: `user = "${userId}"`, sort: '-created',
+    })
+  },
+
+  // Lógica avançada — Padrão 2 (endpoints custom protegidos)
+  async createCheckoutSession(priceId: string, planSlug: string) {
+    return pb.send('/api/billing/checkout', {
+      method: 'POST',
+      body: JSON.stringify({ priceId, planSlug }),
+    }) as Promise<{ url: string }>
+  },
+  async cancelSubscription() {
+    return pb.send('/api/billing/cancel', { method: 'POST' })
+  },
+  async reactivateSubscription() {
+    return pb.send('/api/billing/reactivate', { method: 'POST' })
+  },
+  async getEntitlements() {
+    return pb.send('/api/billing/entitlements') as Promise<{
+      plan: string
+      features: string[]
+      limits: Record<string, number>
+    }>
+  },
 }
+```
 
-export function useEntitlements(): Entitlements {
+### Store de entitlements
+
+```ts
+// apps/web/src/features/billing/stores/entitlements.store.ts
+import { defineStore } from 'pinia'
+import { ref, computed } from 'vue'
+import { billingService } from '../services/billing.service'
+import { useAuthStore } from '@/stores/auth'
+
+export const useEntitlementsStore = defineStore('entitlements', () => {
   const auth = useAuthStore()
+  const sub = ref<Awaited<ReturnType<typeof billingService.getCurrentSubscription>> | null>(null)
+  const loading = ref(false)
+  const error = ref<string | null>(null)
 
-  // cache simples — pode usar Pinia store
-  const sub = ref<any>(null)
-  onMounted(async () => {
+  const features = computed(() => new Set((sub.value as any)?.expand?.plan?.features ?? []))
+  const limits   = computed(() => (sub.value as any)?.expand?.plan?.limits ?? {})
+  const plan     = computed(() => (sub.value as any)?.expand?.plan?.slug ?? null)
+  const isPro    = computed(() => features.value.has('pro') || features.value.has('enterprise'))
+
+  async function load() {
     if (!auth.user) return
+    loading.value = true
+    error.value = null
     try {
-      sub.value = await pb.collection('subscriptions').getFirstListItem(`user = "${auth.user.id}"`)
-    } catch { /* sem subscription = free tier */ }
-  })
+      sub.value = await billingService.getCurrentSubscription(auth.user.id)
+    } catch {
+      // sem subscription = free tier (não é erro)
+      sub.value = null
+    } finally {
+      loading.value = false
+    }
+  }
 
-  const features = computed(() => new Set(sub.value?.expand?.plan?.features ?? []))
-  const limits   = computed(() => sub.value?.expand?.plan?.limits ?? {})
+  function can(feature: string) { return features.value.has(feature) }
+  function limitReached(key: string, current: number) {
+    const limit = limits.value[key]
+    return typeof limit === 'number' && limit !== -1 && current >= limit
+  }
 
+  return { sub, loading, error, plan, features, limits, isPro, load, can, limitReached }
+})
+```
+
+### Uso num componente (via composable que consome a store)
+
+```ts
+// apps/web/src/features/billing/composables/useEntitlements.ts
+import { useEntitlementsStore } from '../stores/entitlements.store'
+
+export function useEntitlements() {
+  const store = useEntitlementsStore()
   return {
-    plan: sub.value?.expand?.plan?.slug ?? null,
-    features: features.value,
-    limits:   limits.value,
-    isPro: features.value.has('pro') || features.value.has('enterprise'),
-    can:     (f: string) => features.value.has(f),
-    limitReached: (k: string, current: number) => {
-      const limit = limits.value[k]
-      return typeof limit === 'number' && limit !== -1 && current >= limit
-    },
+    plan: store.plan,
+    features: store.features,
+    limits: store.limits,
+    isPro: store.isPro,
+    can: store.can,
+    limitReached: store.limitReached,
+    load: store.load,
   }
 }
 ```
 
-### Uso num componente
-
 ```vue
 <script setup lang="ts">
-import { useEntitlements } from '@/composables/useEntitlements'
+import { onMounted } from 'vue'
+import { useEntitlements } from '@/features/billing/composables/useEntitlements'
 const ent = useEntitlements()
+onMounted(() => ent.load())
 </script>
 
 <template>
@@ -337,35 +462,32 @@ const ent = useEntitlements()
 
 ## 4. UI de planos
 
-`apps/web/src/views/billing/PricingView.vue`:
+`apps/web/src/features/billing/views/PricingView.vue` (consome o service):
 
 ```vue
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import pb from '@/services/pocketbase'
+import { useRouter } from 'vue-router'
+import { billingService } from '../services/billing.service'
 import { useAuthStore } from '@/stores/auth'
+import type { PlansRecord } from '@pb-types'
 
-const plans = ref<any[]>([])
+const plans = ref<PlansRecord[]>([])
 const billing = ref<'monthly' | 'yearly'>('monthly')
 const auth = useAuthStore()
+const router = useRouter()
 
 onMounted(async () => {
-  const res = await pb.collection('plans').getList(1, 50, {
-    filter: 'is_active = true', sort: 'sort_order',
-  })
-  plans.value = res.items
+  plans.value = await billingService.listActivePlans()
 })
 
-async function subscribe(plan: any) {
-  if (!auth.isLoggedIn) { auth.$router?.push('/app/login'); return }
+async function subscribe(plan: PlansRecord) {
+  if (!auth.isLoggedIn) { router.push('/app/login'); return }
   const priceId = billing.value === 'monthly'
     ? plan.stripe_monthly_price_id
     : plan.stripe_yearly_price_id
 
-  const { url } = await pb.send('/api/billing/checkout', {
-    method: 'POST',
-    body: JSON.stringify({ priceId, planSlug: plan.slug }),
-  })
+  const { url } = await billingService.createCheckoutSession(priceId, plan.slug)
   window.location.href = url
 }
 </script>

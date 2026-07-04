@@ -66,6 +66,142 @@ pocketbase-vue-tailwind-template/
 └── README.md
 ```
 
+## 🏛️ Arquitetura Recomendada
+
+Estes 5 padrões se aplicam a **qualquer app** construído a partir deste template (blog, CRM, SaaS, helpdesk, e-commerce, painel admin, marketplace, etc). Cada skill em `.opencode/skills/` implementa esses padrões dentro do seu domínio — comece pela skill [`evolution-roadmap`](./.opencode/skills/evolution-roadmap/SKILL.md) pra visão macro de quando aplicar cada um.
+
+### Padrão 1 — Camada de Service (sempre)
+
+**Regra**: nenhum store ou componente chama `pb.collection()` ou `pb.send()` direto. Toda chamada passa por um `*.service.ts` por feature.
+
+```
+component / store
+        ↓
+  service.ts            ← única camada que fala com o backend
+        ↓
+   PocketBase (CRUD direto OU hook custom)
+```
+
+**Por quê**:
+- Trocar de stack = reescrever 1 arquivo por feature
+- Validação/normalização centralizada
+- Auditabilidade (1 lugar pra ver tudo que o front pede)
+
+**Custo**: ~30 linhas por feature. Retorno: vale sempre.
+
+---
+
+### Padrão 2 — Service thin + hook custom pra lógica avançada
+
+**Regra dentro do service**:
+
+| Tipo de operação | Como implementar |
+|---|---|
+| Single-collection, CRUD padrão | `pb.collection('x').getList()` direto |
+| Multi-collection, efeito externo, validação complexa, atomicidade | `pb.send('/api/...')` → hook custom no `pb_hooks/` |
+
+**Como decidir entre as duas** — pergunte nessa ordem:
+
+1. **Se o usuário burlar o front, o que acontece?**
+   - Dá ruim (dado inconsistente, vazamento) → endpoint custom no PB
+   - Só UX ruim → pode ser direto
+2. **Mais de um lugar precisa rodar essa lógica?**
+   - Sim (web app + admin + cron + mobile) → endpoint custom
+   - Só um lugar → pode ser direto
+3. **É regra de acesso ou integridade do dado?**
+   - Sim → sempre no PB
+
+**Exemplos domain-agnostic**:
+- Blog: `criar post` (CRUD) vs `publicar post + notificar subscribers + indexar busca` (hook)
+- E-commerce: `add ao carrinho` (CRUD) vs `finalizar compra` (carrinho + pedido + pagamento + email)
+- Helpdesk: `criar ticket` (CRUD) vs `atribuir técnico` (ticket + notificação + log)
+
+---
+
+### Padrão 3 — Backend é a fonte da verdade de acesso
+
+**Regra**: toda collection tem `listRule`, `viewRule`, `createRule`, `updateRule`, `deleteRule` definidos (nunca `null` em produção multi-user).
+
+```js
+// padrão SaaS multi-user
+listRule:   "owner = @request.auth.id",
+viewRule:   "owner = @request.auth.id",
+createRule: "@request.auth.id != ''",
+updateRule: "owner = @request.auth.id",
+deleteRule: "owner = @request.auth.id"
+```
+
+**Frontend só esconde UI por UX, nunca por segurança.** Quem curl + admin token pode chamar a API direto — o PB barra via rules.
+
+**Exceção**: apps single-user/admin local podem relaxar, mas é raro.
+
+---
+
+### Padrão 4 — Vertical slicing quando crescer
+
+**Regra**: começar com a estrutura horizontal padrão do template. Migrar pra vertical quando:
+- App tem 3+ features distintas
+- Time/pessoa perdendo tempo achando arquivo
+- Vai começar a deletar/refatorar features
+
+**Estrutura alvo**:
+```
+apps/web/src/
+├── features/
+│   ├── <feature-a>/
+│   │   ├── components/
+│   │   ├── stores/<feature>.store.ts
+│   │   ├── services/<feature>.service.ts    ← sempre
+│   │   ├── composables/
+│   │   ├── views/
+│   │   └── index.ts                          ← controla o que vaza
+│   └── <feature-b>/
+├── shared/
+│   ├── components/         ← só o que é reusado por 2+ features
+│   └── services/pocketbase.ts
+└── router/
+```
+
+**Ganho**: deletar uma feature = deletar uma pasta. Sem caça ao tesouro.
+
+---
+
+### Padrão 5 — Type-safety ponta-a-ponta
+
+**Regra**:
+- Tipos vêm do PB (`pb_data/types.d.ts`, gerado em runtime)
+- Alias `@pb-types` configurado no `tsconfig.json`
+- Zero `any` em store/service
+- `env.d.ts` declara todas as `VITE_*` pra autocomplete
+
+```json
+// apps/web/tsconfig.json
+{
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./src/*"],
+      "@pb-types/*": ["../../pocketbase/pb_data/types.d.ts"]
+    }
+  }
+}
+```
+
+**Custo**: configuração única. Retorno: refactor seguro, autocomplete, bugs pegos em compile time.
+
+---
+
+### Mapa: Padrão × Skill
+
+| Padrão | Skill primária | Skills relacionadas |
+|---|---|---|
+| 1 — Camada de service | [`vue-pinia-store`](./.opencode/skills/vue-pinia-store/SKILL.md) | todas as de domínio |
+| 2 — Service thin + hook | [`pocketbase-collections`](./.opencode/skills/pocketbase-collections/SKILL.md) | [`evolution-roadmap`](./.opencode/skills/evolution-roadmap/SKILL.md) |
+| 3 — Backend = verdade | [`pocketbase-collections`](./.opencode/skills/pocketbase-collections/SKILL.md) | todas as de domínio |
+| 4 — Vertical slicing | [`evolution-roadmap`](./.opencode/skills/evolution-roadmap/SKILL.md) | — |
+| 5 — Type-safety | [`vue-pinia-store`](./.opencode/skills/vue-pinia-store/SKILL.md) | [`vite-env-config`](./.opencode/skills/vite-env-config/SKILL.md) |
+
+> 💡 **Ordem sugerida de leitura**: `evolution-roadmap` (visão macro) → `pocketbase-collections` (Padrões 2 e 3) → `vue-pinia-store` (Padrões 1 e 5) → `vue-router-auth` (complementar) → skills de domínio específicas do seu app.
+
 ## 🛠️ Pré-requisitos
 
 - **Node.js** >= 20.19.0

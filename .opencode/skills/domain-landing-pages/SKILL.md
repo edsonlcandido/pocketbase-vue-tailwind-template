@@ -9,6 +9,43 @@ Você vai pegar esse template e criar **um app por cliente**. Cada cliente vai p
 
 > Foco: entregar rápido pro cliente. Não tem otimização de SEO agressiva (não é WordPress). Cada landing é um **experimento de copy + design**, não um poste de blog.
 
+## 🏛️ Alinhamento com Arquitetura Recomendada
+
+A landing segue os 5 padrões da [Arquitetura Recomendada](../../README.md#-arquitetura-recomendada), com adaptação (é mais simples que o web app):
+
+| Padrão | Aplicação na landing |
+|---|---|
+| 1 — Camada de Service | Form de contato / lead captura consome `leadsService` (não `pb.collection()` direto) |
+| 2 — Service thin + hook | Form simples via service; "agendar demo" / "solicitar proposta" com lógica multi-step via hook custom |
+| 3 — Backend é a verdade | Collection `leads` com rules (público pode criar, admin-only list/view/update) |
+| 4 — Vertical slicing | Landing é vertical por segmento: `landing/<segmento>/{components,forms}/` |
+| 5 — Type-safety | Tipos via `@pb-types`; `LeadsRecord` tipado |
+
+### Service layer desta skill
+
+```ts
+// apps/landing/src/services/leads.service.ts
+import pb from '@/services/pocketbase'
+import type { LeadsRecord } from '@pb-types'
+
+export const leadsService = {
+  // Padrão 1 + 2: CRUD simples, encapsulado
+  async capture(data: Partial<LeadsRecord>) {
+    return pb.collection('leads').create<LeadsRecord>(data)
+  },
+
+  // Padrão 2: agendamento / solicitação multi-step vai via hook
+  async scheduleDemo(data: { email: string; company: string; segment: string }) {
+    return pb.send('/api/leads/schedule-demo', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  },
+}
+```
+
+> 💡 **Diferença da landing pro web app**: a landing é mais simples, geralmente 1-2 services. Não precisa de vertical slicing agressivo — fica em `apps/landing/src/`. Padrão 4 aplica quando a landing tem múltiplos segmentos/idiomas.
+
 ## Filosofia
 
 | Decisão | Escolha |

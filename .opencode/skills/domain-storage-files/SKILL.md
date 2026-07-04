@@ -7,6 +7,71 @@ description: Como implementar upload e gerenciamento de arquivos no template —
 
 PocketBase tem campo `file` nativo (filesystem local) + S3-compatível opcional. Cobre 90% dos casos sem libs externas.
 
+## 🏛️ Alinhamento com Arquitetura Recomendada
+
+Esta skill segue os 5 padrões da [Arquitetura Recomendada](../../README.md#-arquitetura-recomendada):
+
+| Padrão | Aplicação nesta skill |
+|---|---|
+| 1 — Camada de Service | Upload/download/delete via service (`filesService`), não `pb.collection().upload()` direto na store |
+| 2 — Service thin + hook | Upload de arquivo simples via service; signed URLs pra arquivos privados via hook custom |
+| 3 — Backend é a verdade | Regras de acesso ao arquivo (`listRule`/`viewRule`) são collection rules; validação de MIME/tamanho via schema |
+| 4 — Vertical slicing | `features/<feature>/` consome `filesService` compartilhado em `shared/` |
+| 5 — Type-safety | Tipos via `@pb-types`; records com campo `file` são tipados |
+
+### Service layer desta skill
+
+```ts
+// apps/web/src/shared/services/files.service.ts
+import pb from '@/shared/services/pocketbase'
+import type { UsersRecord, PostsRecord } from '@pb-types'
+
+export const filesService = {
+  // Upload (Padrão 1 + 2) — wrapper genérico
+  async uploadToRecord<T extends Record<string, any>>(
+    collection: string,
+    recordId: string,
+    field: string,
+    file: File,
+  ): Promise<T> {
+    const formData = new FormData()
+    formData.append(field, file)
+    return pb.collection(collection).update<T>(recordId, formData)
+  },
+
+  // URL pública (Padrão 1) — passa pelo SDK do PB
+  getUrl(record: UsersRecord | PostsRecord, filename: string): string {
+    return pb.files.getURL(record, filename)
+  },
+
+  // Signed URL para arquivos privados — Padrão 2 (hook custom)
+  async getSignedUrl(collection: string, recordId: string, filename: string): Promise<string> {
+    const { token } = await pb.send('/api/files/signed-token', {
+      method: 'POST',
+      body: JSON.stringify({ collection, recordId, filename }),
+    })
+    return `${pb.baseUrl}/api/files/${collection}/${recordId}/${filename}?token=${token}`
+  },
+
+  // Thumbnail on-the-fly (Padrão 2 — gerado no hook)
+  getThumbnailUrl(record: UsersRecord, filename: string, size: '100x100' | '300x300' = '100x100'): string {
+    return `${pb.files.getURL(record, filename)}?thumb=${size}`
+  },
+}
+
+// Helpers específicos por feature (vertical slice)
+export const userFilesService = {
+  async uploadAvatar(userId: string, file: File) {
+    return filesService.uploadToRecord<UsersRecord>('users', userId, 'avatar', file)
+  },
+  getAvatarUrl(user: UsersRecord): string | null {
+    return user.avatar ? filesService.getUrl(user, user.avatar) : null
+  },
+}
+```
+
+> ⚠️ **Padrão 3 em ação**: arquivos privados (anexos confidenciais) exigem `listRule: ""` na collection + endpoint `/api/files/signed-token` que valida permissão antes de emitir token temporário.
+
 ## Caso 1 — Avatar do user
 
 ### Adicionar campo à collection `users`
@@ -57,10 +122,9 @@ async function upload() {
   if (!file.value) return
   loading.value = true
   try {
-    const fd = new FormData()
-    fd.append('avatar', file.value)
-    const updated = await pb.collection('users').update(props.userId, fd)
-    auth.user = updated          // atualiza store reativamente
+    // Padrão 1: consome service, não pb direto
+    const updated = await userFilesService.uploadAvatar(props.userId, file.value)
+    auth.user = updated
     emit('updated', updated.avatar)
     preview.value = null
   } finally {
@@ -70,7 +134,7 @@ async function upload() {
 
 const currentUrl = () => {
   if (preview.value) return preview.value
-  if (props.avatar) return pb.files.getURL({ id: props.userId, collectionId: '_pb_users_auth_' }, props.avatar, { thumb: '100x100' })
+  if (props.avatar) return userFilesService.getAvatarUrl(props.userId, props.avatar)
   return null
 }
 </script>
@@ -116,22 +180,35 @@ $app.dao().saveCollection(leadsCol)
 ### Upload múltiplo
 
 ```ts
-async function uploadAttachments(recordId: string, files: File[]) {
-  const fd = new FormData()
-  for (const f of files) fd.append('attachments', f)
-  return pb.collection('leads').update(recordId, fd)
+// apps/web/src/features/crm/leads/services/leads-files.service.ts
+import { filesService } from '@/shared/services/files.service'
+import type { LeadsRecord } from '@pb-types'
+
+export const leadFilesService = {
+  // Padrão 1: helper específico da feature, consome filesService compartilhado
+  async uploadAttachments(recordId: string, files: File[]) {
+    const fd = new FormData()
+    for (const f of files) fd.append('attachments', f)
+    return filesService.uploadToRecord<LeadsRecord>('leads', recordId, 'attachments', fd)
+  },
 }
 ```
 
-### Visualizar/baixar
+Uso:
+
+```ts
+await leadFilesService.uploadAttachments(leadId, [file1, file2])
+```
+
+### Visualizar/baixar (componente consome service)
 
 ```vue
 <script setup lang="ts">
-import pb from '@/services/pocketbase'
+import { filesService } from '@/shared/services/files.service'
 const props = defineProps<{ record: any; field: string }>()
 
 function url(file: string, thumb?: string) {
-  return pb.files.getURL(props.record, file, { thumb })
+  return filesService.getUrl(props.record, file)
 }
 </script>
 
@@ -160,11 +237,13 @@ col.schema.findFieldByName('file').options = { ...col.schema.findFieldByName('fi
 $app.dao().saveCollection(col)
 ```
 
-Acessar de client autenticado:
+Acessar de client autenticado (via service):
 
 ```ts
-const token = pb.authStore.token
-const url = pb.files.getURL(record, record.file) + `?token=${token}`
+// Padrão 1: consome o service de signed URL
+import { filesService } from '@/shared/services/files.service'
+
+const url = await filesService.getSignedUrl('documents', recordId, record.file)
 ```
 
 Pra URL temporária (assinada server-side):

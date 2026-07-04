@@ -7,6 +7,56 @@ description: Como implementar RBAC (Role-Based Access Control) granular no templ
 
 PocketBase não tem RBAC pronto. Mas o template já tem `auth.ts` que suporta `user.role`. Esta skill monta o sistema inteiro.
 
+## 🏛️ Alinhamento com Arquitetura Recomendada
+
+Esta skill segue os 5 padrões da [Arquitetura Recomendada](../../README.md#-arquitetura-recomendada):
+
+| Padrão | Aplicação nesta skill |
+|---|---|
+| 1 — Camada de Service | Lógica de permissão fica no service + composable; store consome service |
+| 2 — Service thin + hook | CRUD de roles via service; checagens server-side via hook `onRecordBeforeCreateRequest` |
+| 3 — Backend é a verdade | Backend bloqueia criação de admin via hook; front só **esconde UI** por UX |
+| 4 — Vertical slicing | Estrutura `features/rbac/{permissions,middleware,directives}/` |
+| 5 — Type-safety | Role/Ação como union types, não strings soltas |
+
+### Service layer desta skill
+
+```ts
+// apps/web/src/features/rbac/services/permissions.service.ts
+import pb from '@/shared/services/pocketbase'
+import type { UsersRecord } from '@pb-types'
+import { usePermissions } from '../composables/usePermissions'
+
+export const permissionsService = {
+  // CRUD — Padrão 1 + 2
+  async listUsersWithRoles(page = 1, perPage = 200) {
+    return pb.collection('users').getList<UsersRecord>(page, perPage, {
+      sort: '-created', fields: 'id,email,name,role,team,status',
+    })
+  },
+  async updateUserRole(userId: string, role: UsersRecord['role']) {
+    return pb.collection('users').update<UsersRecord>(userId, { role })
+  },
+
+  // Lógica avançada — Padrão 2 (endpoint custom)
+  async listUsersByPermission(permission: string) {
+    return pb.send('/api/admin/users/by-permission', {
+      method: 'POST',
+      body: JSON.stringify({ permission }),
+    })
+  },
+}
+
+// Helper de checagem (client-side, NÃO substitui backend)
+export const can = (user: UsersRecord | null, action: string, resource: string) => {
+  if (!user) return false
+  const perms = usePermissions(user.role as any)
+  return perms.can(action, resource)
+}
+```
+
+> ⚠️ **Lembrete crítico**: gating no front é **UX, não segurança**. O backend (Padrão 3) enforça via collection rules + hooks. Esta skill fornece a matriz pro front decidir o que mostrar; o PB decide o que aceitar.
+
 ## Modelo
 
 ```
@@ -203,36 +253,70 @@ router.beforeEach((to, _from, next) => {
 }
 ```
 
-## 5. Pinia store admin de users
+## 5. Pinia store admin de users (via service layer — Padrão 1)
+
+### Service
 
 ```ts
-// stores/admin-users.ts
+// apps/web/src/features/rbac/services/admin-users.service.ts
+import pb from '@/shared/services/pocketbase'
+import type { UsersRecord } from '@pb-types'
+import type { Role } from '../composables/usePermissions'
+
+export const adminUsersService = {
+  async list(page = 1, perPage = 200) {
+    return pb.collection('users').getList<UsersRecord>(page, perPage, {
+      sort: 'email', fields: 'id,email,name,role,team,status',
+    })
+  },
+  async updateRole(id: string, role: Role) {
+    return pb.collection('users').update<UsersRecord>(id, { role })
+  },
+  async delete(id: string) {
+    return pb.collection('users').delete(id)
+  },
+}
+```
+
+### Store
+
+```ts
+// apps/web/src/features/rbac/stores/admin-users.store.ts
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import pb from '@/services/pocketbase'
+import { adminUsersService } from '../services/admin-users.service'
+import { type Role } from '../composables/usePermissions'
+import type { UsersRecord } from '@pb-types'
 
 export const useAdminUsersStore = defineStore('admin-users', () => {
-  const items = ref<any[]>([])
+  const items = ref<UsersRecord[]>([])
   const loading = ref(false)
+  const error = ref<string | null>(null)
 
   async function fetchAll() {
     loading.value = true
+    error.value = null
     try {
-      items.value = (await pb.collection('users').getList(1, 200, { sort: 'email' })).items
-    } finally { loading.value = false }
+      const res = await adminUsersService.list()
+      items.value = res.items
+    } catch (e: unknown) {
+      error.value = e instanceof Error ? e.message : 'Falha ao listar usuários'
+    } finally {
+      loading.value = false
+    }
   }
 
-  async function changeRole(id: string, role: string) {
-    await pb.collection('users').update(id, { role })
+  async function changeRole(id: string, role: Role) {
+    await adminUsersService.updateRole(id, role)
     await fetchAll()
   }
 
   async function remove(id: string) {
-    await pb.collection('users').delete(id)
+    await adminUsersService.delete(id)
     items.value = items.value.filter(u => u.id !== id)
   }
 
-  return { items, loading, fetchAll, changeRole, remove }
+  return { items, loading, error, fetchAll, changeRole, remove }
 })
 ```
 
