@@ -14,6 +14,7 @@ Template completo para projetos com PocketBase + Vue 3 + TypeScript + Tailwind C
 - **Heroicons** para ícones
 - **Dockerfile** multi-stage para produção
 - **Scripts automatizados** para desenvolvimento e deploy
+- **AGENTS.md + skills** para agentes de IA (PocketBase, Vue e validação pré-deploy)
 
 ## 📁 Estrutura do Projeto
 
@@ -59,6 +60,11 @@ pocketbase-vue-tailwind-template/
 │   ├── copy-landing.js       # Copia build da landing
 │   └── copy-app.js           # Copia build do app
 │
+├── .agents/
+│   └── skills/               # Skills pra agentes de IA (PocketBase, Vue, validação)
+│       └── README.md         # Índice das skills
+│
+├── AGENTS.md                 # Contexto operacional para agentes de IA
 ├── Dockerfile                # Build multi-stage
 ├── .dockerignore
 ├── .gitignore
@@ -231,7 +237,7 @@ curl -I https://...-openvscode-node-8090.../api/health
 | `502 Bad Gateway`                                    | Serviço interno caiu                       | `npm run dev` no terminal do editor                                      |
 | `EADDRINUSE 8090`                                    | PB já estava rodando                       | `lsof -ti:8090 | xargs kill -9`                                          |
 
-Mais detalhes, comparativo com Codespaces e dicas pra outras plataformas (Cloudflare Tunnel, ngrok, Coolify, Traefik) em `.opencode/skills/vscode-server-dev/SKILL.md`.
+As 3 invariantes (bind em `0.0.0.0`, `allowedHosts` no Vite, URLs externas no `.env.local`) valem para qualquer plataforma — Codespaces, túnel, Easypanel, Traefik, Caddy. Detalhes de env, proxy e dev remoto na skill `.agents/skills/vite-env-config/SKILL.md`.
 
 #### `VITE_ALLOWED_HOSTS` (variável custom do Vite)
 
@@ -505,6 +511,30 @@ npm run copy:landing     # Copiar landing para PocketBase
 npm run copy:app         # Copiar app para PocketBase
 npm run preview          # Preview em produção
 ```
+
+## 🤖 AGENTS.md e Skills para agentes de IA
+
+Este template vem com contexto operacional para agentes de IA (OpenCode, Claude Code, Copilot, Codex…).
+
+**`AGENTS.md`** (raiz) — visão geral do projeto: arquitetura, estrutura, comandos, variáveis de ambiente, as regras do PocketBase que mais quebram e o **workflow obrigatório de validação antes de commitar**.
+
+**`.agents/skills/`** — instruções reutilizáveis, carregadas automaticamente pelo agente conforme o pedido:
+
+| Skill | Quando usar |
+|---|---|
+| `pocketbase-migrations` | Criar/alterar collection, campo, migration de dados |
+| `pocketbase-jsvm` | Escrever/depurar hook em `pb_hooks/`, `$http`, `$app`, `routerAdd` |
+| `pocketbase-collections` | Criar collection, regras de acesso, índices, hooks de evento |
+| `pocketbase-gotchas` | Routing de SPA, `$apis.static`, wildcard `{path...}`, Dockerfile do PB |
+| `pre-deploy-validation` | Validar antes de commitar/pushar (build, migration, docker) |
+| `vue-pinia-store` | Criar store Pinia no padrão do projeto |
+| `vue-router-auth` | Criar rota, proteger rota, guard por role |
+| `tailwind-vue-component` | Criar componente Vue com Tailwind v4 |
+| `vite-env-config` | Env `VITE_*`, proxy do Vite, dev remoto |
+
+Índice completo: [`\.agents/skills/README.md`](.agents/skills/README.md).
+
+> O diretório `.agents/skills/` é lido nativamente pelo OpenCode e pela Claude Code. Se usar outro agente, aponte pra ele no arquivo de configuração dele.
 
 ## 🤝 Contribuindo
 
