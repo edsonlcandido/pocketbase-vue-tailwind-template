@@ -10,12 +10,15 @@
             </h1>
           </div>
           <div class="flex items-center gap-4">
-            <div class="flex items-center gap-3 px-4 py-2 bg-gradient-to-r from-blue-50 to-purple-50 rounded-full">
+            <RouterLink
+              to="/bio"
+              class="flex items-center gap-3 px-4 py-2 bg-gradient-to-r from-blue-50 to-purple-50 rounded-full hover:from-blue-100 hover:to-purple-100 transition-colors"
+            >
               <div class="w-8 h-8 bg-gradient-to-r from-blue-600 to-purple-600 rounded-full flex items-center justify-center">
                 <UserCircleIcon class="h-5 w-5 text-white" />
               </div>
               <span class="text-sm font-semibold text-gray-700">{{ userName }}</span>
-            </div>
+            </RouterLink>
             <button
               @click="handleLogout"
               class="group inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg text-white bg-gradient-to-r from-red-500 to-pink-500 hover:from-red-600 hover:to-pink-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-all transform hover:scale-105 shadow-lg"
@@ -171,6 +174,21 @@
                   <p class="text-xs text-gray-500 mt-1">Ajustar preferências</p>
                 </div>
               </button>
+
+              <RouterLink
+                to="/bio"
+                class="group relative flex items-center space-x-4 rounded-xl border-2 border-gray-200 bg-gradient-to-br from-white to-blue-50 px-6 py-6 shadow-lg hover:shadow-xl hover:border-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all transform hover:-translate-y-1"
+              >
+                <div class="flex-shrink-0">
+                  <div class="w-12 h-12 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform shadow-md">
+                    <UserCircleIcon class="h-6 w-6 text-white" />
+                  </div>
+                </div>
+                <div class="min-w-0 flex-1 text-left">
+                  <span class="text-base font-semibold text-gray-900 group-hover:text-blue-600 transition-colors">Minha Bio</span>
+                  <p class="text-xs text-gray-500 mt-1">Ver e editar meus dados de conta</p>
+                </div>
+              </RouterLink>
 
               <a
                 href="/"

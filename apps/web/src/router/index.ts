@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import pb from '../services/pocketbase'
 import LoginView from '../views/LoginView.vue'
 import DashboardView from '../views/DashboardView.vue'
+import BioView from '../views/BioView.vue'
 
 const router = createRouter({
   history: createWebHistory('/app/'),
@@ -20,6 +21,12 @@ const router = createRouter({
       path: '/dashboard',
       name: 'dashboard',
       component: DashboardView,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/bio',
+      name: 'bio',
+      component: BioView,
       meta: { requiresAuth: true },
     },
   ],
