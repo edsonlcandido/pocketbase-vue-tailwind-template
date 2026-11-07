@@ -10,6 +10,9 @@ apps/web/dist
 apps/landing/dist
 
 # Development
+.env
+.env.*
+!.env.example
 .env.development
 .env.local
 *.local

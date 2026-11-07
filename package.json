@@ -11,7 +11,8 @@
         "apps/*"
     ],
     "scripts": {
-        "dev:pb": "node scripts/pocketbase.js",
+        "dev:pb": "docker compose -f docker-compose.dev.yaml up -d pocketbase && docker compose -f docker-compose.dev.yaml logs -f pocketbase",
+        "dev:pb:local": "node scripts/pocketbase.js",
         "dev:landing": "cd apps/landing && npm run dev -- --port 5173",
         "dev:web": "cd apps/web && npm run dev -- --port 5174",
         "dev": "concurrently -k -n PB,LANDING,WEB -c blue,green,magenta \"npm:dev:pb\" \"npm:dev:landing\" \"npm:dev:web\"",

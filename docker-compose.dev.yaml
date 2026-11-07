@@ -1,0 +1,30 @@
+# Dev: SÓ o PocketBase, na MESMA imagem de produção (ghcr), com as
+# hooks/migrations/pb_public do repositório montados.
+#
+# Os frontends rodam via Vite (npm run dev:landing / dev:web) e falam com o
+# PocketBase em http://localhost:8090 — igual à prod, só muda a URL do banco.
+#
+#   docker compose -f docker-compose.dev.yaml up -d pocketbase
+#
+services:
+  pocketbase:
+    image: ghcr.io/edsonlcandido/pocketbase-turso:0.40.6
+    container_name: pocketbase
+    # sem override de command: o CMD da imagem já é
+    # /app/pocketbase serve --http=0.0.0.0:8090 --dir=/app/pb_data
+    ports:
+      - "8090:8090"
+    volumes:
+      - ./pocketbase/pb_hooks:/app/pb_hooks
+      - ./pocketbase/pb_migrations:/app/pb_migrations
+      - ./pocketbase/pb_public:/app/pb_public
+      - pb_data_dev:/app/pb_data
+    environment:
+      # Banco do app no libSQL — em dev, aponte para o banco CLONE.
+      URL_LIBSQL_TURSO: ${URL_LIBSQL_TURSO:?defina URL_LIBSQL_TURSO no .env}
+      # Opcional: 2º banco para o auxiliary.db (tabela _logs). Vazio = local.
+      URL_LIBSQL_TURSO_AUX: ${URL_LIBSQL_TURSO_AUX:-}
+    restart: unless-stopped
+
+volumes:
+  pb_data_dev:

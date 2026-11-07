@@ -12,11 +12,12 @@ Template de backend + frontend: **PocketBase** como API/auth/DB e **monorepo Vue
 
 | Camada | Stack |
 |---|---|
-| Backend / DB / Auth | PocketBase **0.40.5** (SQLite + Go), JSVM (hooks + migrations) |
+| Backend / DB / Auth | PocketBase **0.40.6** (Go), JSVM (hooks + migrations) |
+| Banco de dados | **libSQL/Turso remoto** — URL em `URL_LIBSQL_TURSO`. O `pb_data` local só guarda uploads e o `logs.db` |
 | Frontend | Vue 3 (Composition API) + TypeScript + Vite 6 + Tailwind CSS **v4** |
 | Estado / rotas | Pinia + Vue Router 4 |
 | Monorepo | npm workspaces (`apps/*`) |
-| Produção | Dockerfile multi-stage → 1 imagem com PB + landing + web app |
+| Produção | Dockerfile multi-stage → 1 imagem com PB + landing + web app (base: `ghcr.io/edsonlcandido/pocketbase-turso`) |
 
 Requisitos: **Node >= 20.19.0**, npm >= 10.
 
@@ -67,8 +68,10 @@ pocketbase-vue-tailwind-template/
 │   ├── copy-landing.js       # apps/landing/dist → pb_public/
 │   └── copy-app.js           # apps/web/dist → pb_public/app/
 │
-├── Dockerfile                # multi-stage: landing-builder → web-builder → alpine+PB
-├── docker-compose.yaml       # PB local com volume pb_data
+├── Dockerfile                # multi-stage: landing-builder → web-builder → imagem base do ghcr
+├── docker-compose.yaml       # PB de produção (build local) com volume pb_data
+├── docker-compose.dev.yaml   # PB de dev: imagem do ghcr + hooks/pb_public montados
+├── .env.example              # modelo do .env com URL_LIBSQL_TURSO (o .env real é gitignored)
 ├── AGENTS.md                 # este arquivo
 ├── .agents/skills/           # skills pra agentes de IA
 └── package.json              # root (workspaces: apps/*)
@@ -82,8 +85,9 @@ pocketbase-vue-tailwind-template/
 npm install                # instala root + workspaces
 
 # desenvolvimento (tudo junto)
-npm run dev                # PB :8090 + landing :5173 + web :5174
-npm run dev:pb             # só PocketBase (baixa o binário se precisar)
+npm run dev                # PB :8090 (docker) + landing :5173 + web :5174
+npm run dev:pb             # só PocketBase (docker compose -f docker-compose.dev.yaml)
+npm run dev:pb:local       # só PocketBase com o binário oficial local (SQLite, sem libSQL)
 npm run dev:landing        # só a landing
 npm run dev:web            # só o web app
 
@@ -139,6 +143,17 @@ O Vite **só enxerga** arquivos `.env*` dentro do diretório do app (`apps/<app>
 - `VITE_ALLOWED_HOSTS` **não é env do Vite**: é uma env custom lida por `vite.local.config.ts` (lista separada por vírgula → `server.allowedHosts`). Default = aceita qualquer host (necessário atrás de proxy/porta túnel).
 - `VITE_*` são **build-time**: o valor é congelado no bundle no momento do `vite build`. Não são runtime.
 - **Nunca** coloque segredo em `VITE_*` — tudo com esse prefixo vai pro JS do navegador. Use hooks do PocketBase (`$os.getenv`) pra dado sensível.
+
+### Variáveis do backend (raiz do repo)
+
+O PocketBase lê o banco do **ambiente em runtime** — o binário não lê `.env`. O Compose faz a interpolação (`${URL_LIBSQL_TURSO}`) a partir do `.env` da **raiz** (gitignored; modelo no `.env.example`).
+
+| Variável | Obrigatória | Descrição |
+|---|---|---|
+| `URL_LIBSQL_TURSO` | ✅ Sim | URL do banco principal no libSQL, com o token na query string: `https://host/dev/<namespace>/?authToken=<token>` |
+| `URL_LIBSQL_TURSO_AUX` | ⚠️ Opcional | 2º banco para o `auxiliary.db` (tabela `_logs`). Tem que ser um database **separado** — `data.db` e `auxiliary.db` têm as mesmas tabelas de sistema. Vazio = auxiliar no disco local. |
+
+> Dev apontar para o **banco clonado**, prod para o banco de prod. Mesma imagem, `.env` diferente.
 
 ---
 
@@ -247,6 +262,11 @@ A landing usa nomes fixos (`js/main.js`, `css/style.css`) com cache-busting por 
 
 ### PocketBase
 
+- **A imagem base precisa do JSVM.** `ghcr.io/edsonlcandido/pocketbase-turso` já compila com `jsvm.MustRegister` — sem isso, `pb_hooks/*.js` e `pb_migrations/*.js` são **ignorados silenciosamente** (o app sobe, `/app/*` dá 404 e o schema nunca é criado). Trocar a imagem base pela oficial (`ghcr.io/pocketbase/pocketbase`) **quebra o template**.
+- **Catch-all vs hook:** o fork registra `GET /{path...}` (serve `pb_public`). O hook `main.pb.js` registra `GET /app/{path...}`. O roteador do PB resolve o mais específico primeiro — **o hook ganha** e o SPA continua abrindo em `/app/*`. (Verificado em runtime.)
+- **O banco é remoto (libSQL):** o `pb_data` local só tem `storage/` (uploads) e `logs.db`. Não versionar `data.db` — ele nem existe local.
+- **Latência:** toda query vai por HTTP → o admin do PocketBase fica mais lento que com SQLite local.
+- **`foreign_keys`:** o driver libSQL não aplica as pragmas que o SQLite local usa (`?_pragma=foreign_keys(ON)`) — a integridade referencial fica por conta do servidor.
 - **PB em container não hot-reloada hook** se o volume montar por cima: reinicie o processo.
 - **`pb_data/types.d.ts` é gerado pelo PB em runtime.** Não edite à mão — rode o PB e deixe ele regenerar (o arquivo é versionado no git).
 - **`pb_data/data.db` é o estado inteiro.** Versionar `pb_migrations/` reconstrói o schema; os **dados** só voltam via backup.
