@@ -1,19 +1,11 @@
 services:
   pocketbase:
-    build:
-      context: .
-    image: app:latest
+    image: stack:latest
     container_name: pocketbase
     ports:
       - "8090:8090"
     volumes:
       - pb_data:/app/pb_data
-    environment:
-      # Banco do app no libSQL. A URL carrega o token na query string
-      # (?authToken=). Vem do .env da máquina (gitignored) — nunca commitar.
-      URL_LIBSQL_TURSO: ${URL_LIBSQL_TURSO:?defina URL_LIBSQL_TURSO no .env}
-      # Opcional: 2º banco para o auxiliary.db (tabela _logs). Vazio = local.
-      URL_LIBSQL_TURSO_AUX: ${URL_LIBSQL_TURSO_AUX:-}
     restart: unless-stopped
 
 volumes:

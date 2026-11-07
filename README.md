@@ -6,7 +6,6 @@ Template completo para projetos com PocketBase + Vue 3 + TypeScript + Tailwind C
 
 - **Monorepo** com workspaces (Landing Page + Web App)
 - **PocketBase** como backend (autenticação, database, API RESTful)
-- **Banco no libSQL/Turso** — o app e o banco são separados: a URL vem de `URL_LIBSQL_TURSO` e o `pb_data` local só guarda uploads
 - **Vue 3** com Composition API e TypeScript
 - **Tailwind CSS v4** para estilização moderna
 - **Vue Router** com guards de autenticação
@@ -77,7 +76,6 @@ pocketbase-vue-tailwind-template/
 
 - **Node.js** >= 20.19.0
 - **npm** >= 10.x
-- **Docker** (o PocketBase roda em container, com o banco no libSQL)
 
 ## 📦 Instalação
 
@@ -93,12 +91,6 @@ npm install
 ```
 
 Isso instalará as dependências do root e de todos os workspaces (landing e web).
-
-3. Configure o banco (o app fala com libSQL, não com SQLite local):
-```bash
-cp .env.example .env
-# edite URL_LIBSQL_TURSO com a URL do seu banco (o token vai na query string)
-```
 
 ## 🚀 Desenvolvimento
 
@@ -364,17 +356,6 @@ Acesse http://localhost:8090 para ver:
 
 ## 🐳 Docker
 
-A imagem base é o **PocketBase com libSQL** (`ghcr.io/edsonlcandido/pocketbase-turso`) — o mesmo binário em dev e prod, com o plugin JSVM registrado (sem ele, os hooks e migrations `.js` são ignorados silenciosamente).
-
-### Banco de dados (antes de subir)
-
-O app **não** usa SQLite local: o `data.db` fica no libSQL. Crie o `.env` na raiz (gitignored, modelo no `.env.example`):
-
-```bash
-cp .env.example .env
-# edite URL_LIBSQL_TURSO com a URL do seu banco (o token vai na query string)
-```
-
 ### Build da Imagem
 
 ```bash
@@ -384,22 +365,33 @@ docker build -t pocketbase-app .
 ### Executar o Container
 
 ```bash
-docker run -p 8090:8090 \
-  -v $(pwd)/pb_data:/app/pb_data \
-  -e URL_LIBSQL_TURSO="https://host/dev/<ns>/?authToken=<token>" \
-  pocketbase-app
+docker run -p 8090:8090 -v $(pwd)/pb_data:/app/pb_data pocketbase-app
 ```
 
 Acesse http://localhost:8090
 
-### Docker Compose
+### Docker Compose (Exemplo)
 
-```bash
-docker compose up -d                            # build local + .env da raiz
-docker compose -f docker-compose.dev.yaml up -d # dev: imagem do ghcr, sem rebuild
+Crie um arquivo `docker-compose.yml`:
+
+```yaml
+version: '3.8'
+
+services:
+  pocketbase:
+    build: .
+    ports:
+      - "8090:8090"
+    volumes:
+      - ./pb_data:/app/pb_data
+    restart: unless-stopped
 ```
 
-O Compose lê o `.env` da raiz e repassa `URL_LIBSQL_TURSO` / `URL_LIBSQL_TURSO_AUX` para o container.
+Execute:
+
+```bash
+docker-compose up -d
+```
 
 ## 🔐 Autenticação
 
@@ -509,8 +501,7 @@ const records = await pb.collection('posts').getList()
 
 ```bash
 npm run dev              # Executar tudo em dev
-npm run dev:pb           # Apenas PocketBase (docker, com libSQL)
-npm run dev:pb:local     # Apenas PocketBase com binário oficial local (SQLite)
+npm run dev:pb           # Apenas PocketBase
 npm run dev:landing      # Apenas Landing
 npm run dev:web          # Apenas Web App
 npm run build            # Build completo
