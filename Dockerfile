@@ -47,8 +47,8 @@ RUN apk add --no-cache \
 WORKDIR /app
 
 # Baixar e instalar PocketBase
-ARG POCKETBASE_VERSION=0.40.5
-RUN wget https://github.com/pocketbase/pocketbase/releases/download/v${POCKETBASE_VERSION}/pocketbase_${POCKETBASE_VERSION}_linux_amd64.zip \
+ARG POCKETBASE_VERSION=0.42.3
+RUN wget https://ganigeorgiev.com/meta/pocketbase/pocketbase/download/v${POCKETBASE_VERSION}/pocketbase_${POCKETBASE_VERSION}_linux_amd64.zip \
     && unzip pocketbase_${POCKETBASE_VERSION}_linux_amd64.zip \
     && rm pocketbase_${POCKETBASE_VERSION}_linux_amd64.zip \
     && chmod +x pocketbase
