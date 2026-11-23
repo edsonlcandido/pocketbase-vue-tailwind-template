@@ -49,6 +49,8 @@ migrate((app) => {
     updateRule: "@request.auth.id != ''",
     deleteRule: "@request.auth.id != ''",
     fields: [
+      { name: "created", type: "autodate", onCreate: true, onUpdate: false },
+      { name: "updated", type: "autodate", onCreate: true, onUpdate: true },
       { name: "title", type: "text", max: 200, required: true },
       { name: "body", type: "editor", required: false },
       { name: "author", type: "relation", required: true,
@@ -71,6 +73,15 @@ migrate((app) => {
 
 > ⚠️ **PB 0.40+**: as opções do field vão **diretas no field** (`values`, `collectionId`, `maxSelect`, `cascadeDelete`…), **nunca** dentro de `options: {}`. E `fields: [...]` (não `schema: [...]`).
 > Detalhes completos (idempotência, teste local, tabela de erros): `.agents/skills/pocketbase-migrations/SKILL.md`.
+
+**Timestamps obrigatórios em migrations manuais:** ao definir uma collection nova, inclua `created` e `updated` como fields `autodate`. A Admin UI os cria automaticamente, mas uma migration escrita à mão precisa declará-los:
+
+```js
+{ name: "created", type: "autodate", onCreate: true, onUpdate: false },
+{ name: "updated", type: "autodate", onCreate: true, onUpdate: true },
+```
+
+Use esses nomes nativos do PocketBase (não `created_at`/`updated_at`); `created` só muda na criação e `updated` é atualizado na criação e em cada atualização.
 
 ### Relations
 

@@ -1,13 +1,13 @@
 ---
 name: pocketbase-migrations
-description: Criar, verificar e depurar migrations JS do PocketBase neste template (pocketbase/pb_migrations/*.js, PB 0.40.5). Cobre as 3 regras que sempre quebram no primeiro deploy: (1) nunca editar uma migration já commitada — correção vai em NOVA migration com timestamp maior, (2) no PB 0.40+ as opções do field vão DIRETO no field (não dentro de `options: {}`), (3) adicionar field em collection existente exige a classe `Field`. Use quando o pedido mencionar migration, schema, nova collection, novo campo, pb_migrations, types.d.ts, alterar tabela.
+description: Criar, verificar e depurar migrations JS do PocketBase neste template (pocketbase/pb_migrations/*.js, PB 0.40.5). Cobre migrations imutáveis, opções diretas nos fields, uso de `Field` em collections existentes e timestamps `created`/`updated` em novas collections. Use quando o pedido mencionar migration, schema, nova collection, novo campo, pb_migrations, types.d.ts, alterar tabela.
 ---
 
 # PocketBase — Migrations JS (PB 0.40.5)
 
 Migrations deste template ficam em `pocketbase/pb_migrations/*.js` e são aplicadas **automaticamente pelo PocketBase no boot** — em dev e em qualquer ambiente que suba o PB. É o que reconstrói o schema a partir do zero.
 
-Três regras abaixo já custaram rollback de deploy em projetos reais. Não são着她的 vaidade — são load-bearing.
+As regras abaixo evitam problemas de deploy e garantem que collections criadas por migration tenham os timestamps esperados.
 
 ---
 
@@ -72,6 +72,20 @@ collection.fields.add(
 ```
 
 Atalho válido: `collection.fields.add("name")` cria um `TextField` com defaults (útil quando for ajustar as props depois).
+
+## Regra 4 — declare os timestamps ao criar uma collection
+
+Ao criar uma collection manualmente em uma migration, inclua os fields `created` e `updated` do tipo `autodate`. A Admin UI os adiciona automaticamente; uma migration escrita à mão deve declará-los para reproduzir esse schema. `created` é preenchido na criação; `updated` é preenchido na criação e em cada atualização.
+
+```js
+fields: [
+  { name: "created", type: "autodate", onCreate: true, onUpdate: false },
+  { name: "updated", type: "autodate", onCreate: true, onUpdate: true },
+  { name: "title", type: "text", max: 200, required: true },
+]
+```
+
+Use os nomes nativos `created` e `updated` (não `created_at`/`updated_at`) para manter compatibilidade com a API e as convenções do PocketBase. As opções `onCreate` e `onUpdate` ficam diretamente no field.
 
 ---
 
@@ -148,6 +162,8 @@ migrate((app) => {
       updateRule: "@request.auth.id != ''",
       deleteRule: "@request.auth.id != ''",
       fields: [
+        { name: "created", type: "autodate", onCreate: true, onUpdate: false },
+        { name: "updated", type: "autodate", onCreate: true, onUpdate: true },
         { name: "name", type: "text", max: 60, required: true },
         { name: "post", type: "relation", required: true,
           collectionId: posts.id, cascadeDelete: true,
@@ -246,6 +262,7 @@ sqlite3 pocketbase/pb_data/data.db "SELECT name FROM _collections ORDER BY name"
 - [ ] Arquivo novo com timestamp **maior** que o último
 - [ ] Nenhuma migration já commitada foi editada
 - [ ] Opções de field **diretas** no field (sem `options: {}`)
+- [ ] Collection nova declara `created` e `updated` como fields `autodate`
 - [ ] `new Field({...})` em field novo de collection existente
 - [ ] Idempotente (roda 2x sem quebrar)
 - [ ] `down` com `try/catch`
